@@ -15,7 +15,7 @@ spec:
       containers:
         - name: app
           image: ghcr.io/yourusername/ephemeral-envs:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
