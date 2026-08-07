@@ -3,8 +3,9 @@ kind: Namespace
 metadata:
   name: ephemeral-envs-system
 ---
-# Used by the ObjectTemplate to create and prune KluctlDeployment objects.
-# It can only touch those, and only in its own namespace.
+# Used by the ObjectTemplate to read its matrix inputs and to create and prune
+# the KluctlDeployment objects it generates. Scoped to those two things, in
+# this namespace only.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,6 +18,13 @@ metadata:
   name: preview-templater
   namespace: ephemeral-envs-system
 rules:
+  # Read the matrix input. Without this the ObjectTemplate cannot watch
+  # ListGithubPullRequests and reports Ready=False with a forbidden error,
+  # having generated nothing.
+  - apiGroups: ["templates.kluctl.io"]
+    resources: ["listgithubpullrequests", "objecttemplates"]
+    verbs: ["get", "list", "watch"]
+  # Write the generated output.
   - apiGroups: ["gitops.kluctl.io"]
     resources: ["kluctldeployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
