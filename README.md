@@ -1,160 +1,237 @@
-# 🚀 Ephemeral Preview Environments
+# Ephemeral Preview Environments
 
-> Every pull request gets its own live environment. Automatically.
+Every open pull request has a live, isolated environment — its own frontend, backend, database and URL. Close the PR and it disappears.
 
----
+Self-hosted on K3d with pull-based GitOps. Same idea as Vercel Preview Deployments, built on open-source tooling.
 
-## What Is This?
-
-You know that feeling when someone opens a PR and says *"can you review this?"* — but to actually test it, you have to pull the branch, set up a database, run migrations, and hope nothing conflicts with your local setup?
-
-This project fixes that.
-
-When a pull request is opened on GitHub, a fully isolated environment is automatically spun up on a Kubernetes cluster — with its own app instance, its own database, and its own URL. When the PR is closed or merged, everything is torn down automatically. No manual cleanup. No shared staging environment. No "works on my machine."
-
-This is the same concept behind **Vercel Preview Deployments** and **Netlify Deploy Previews** — but self-hosted, on your own infrastructure, using open-source tools.
+```
+PR #42 opened  →  http://pr-42.local.127.0.0.1.nip.io
+PR #42 closed  →  gone
+```
 
 ---
 
-## How It Works
+## The one idea worth knowing
+
+The obvious build is event-driven: PR opens → deploy, PR closes → destroy. That has a structural flaw. A webhook is an **event** — miss it and you are permanently out of sync. Close a PR while the machine is asleep and its environment lives forever, because the moment that was meant to clean it up has passed and will not come again.
+
+This is built the other way round. Nothing reacts to a PR closing. A controller in the cluster continuously asks *"which PRs are open right now?"* and makes reality match:
+
+```
+open pull requests on GitHub  ←── desired state
+              ▼
+ running preview environments ←── actual state
+```
+
+There is no cleanup code in this repository. Teardown is a property of the system.
+
+---
+
+## How it works
 
 ```mermaid
-flowchart TD
-    A[Developer] -->|Opens PR| B(GitHub Repository)
-    B -->|Triggers| C{GitHub Actions}
-    
-    subgraph Laptop [Your Local Laptop]
-        D[Self-Hosted Runner]
-        
-        subgraph Cluster [K3d Cluster]
-            E[Ingress Controller\nnip.io Routing]
-            
-            subgraph PR_Namespace [Namespace: pr-42]
-                F[FastAPI App Pod]
-                G[(PostgreSQL Pod)]
-                F <-->|Reads/Writes| G
-            end
-            
-            E -->|Routes Traffic| F
-        end
+flowchart LR
+    GH[(GitHub)]
+
+    subgraph CI [GitHub Actions]
+        B[Build images<br/>no cluster credentials]
     end
-    
-    C -->|Executes Workflow| D
-    D -->|kubectl apply -k| PR_Namespace
-    A -->|Visits pr-42.127.0.0.1.nip.io| E
-    
-    classDef git fill:#181717,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef k8s fill:#326ce5,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef db fill:#336791,stroke:#fff,stroke-width:2px,color:#fff;
-    
-    class B,C git;
-    class Cluster,PR_Namespace k8s;
-    class G db;
+
+    REG[(Local registry)]
+
+    subgraph K [K3d cluster]
+        L[ListGithubPullRequests<br/>polls every 1m]
+        O[ObjectTemplate<br/>1 output per open PR]
+        D[KluctlDeployment<br/>pr-42]
+        N[Namespace pr-42<br/>frontend · backend · postgres]
+    end
+
+    GH --> B --> REG
+    GH -.poll.-> L --> O --> D --> N
+    REG -.kubelet pulls.-> N
+
+    classDef g fill:#181717,stroke:#888,color:#fff
+    classDef k fill:#326ce5,stroke:#888,color:#fff
+    class GH,CI g
+    class K,N k
 ```
 
----
+Three resources own the whole lifecycle:
 
-## Tech Stack
-
-| Tool | Purpose |
+| Resource | Job |
 |---|---|
-| **K3d** | Local Kubernetes cluster (K3s inside Docker) |
-| **Kustomize** | Deploy and template app per environment without heavy Helm charts |
-| **Traefik Ingress** | Route traffic to the correct namespace + enforce Basic Auth per environment |
-| **nip.io** | Free wildcard DNS (no domain purchase needed) |
-| **GitHub Actions** | Trigger deploy/cleanup on PR events |
-| **PostgreSQL** | Per-environment isolated database |
-| **Python / FastAPI** | Sample app used to demonstrate the system |
+| `ListGithubPullRequests` | Polls the GitHub API, publishes open PRs to its `status` |
+| `ObjectTemplate` | Treats that list as a matrix, renders one `KluctlDeployment` each |
+| `KluctlDeployment` | Deploys that PR's branch into `pr-<number>` |
+
+When a PR closes it leaves the list, the matrix input vanishes, and the deployment is pruned.
+
+**GitHub Actions only builds images.** It holds no cluster credentials.
 
 ---
 
-## Why K3d Instead of K3s, Minikube, or Kind?
+## Setup
 
-Great question. There are several ways to run Kubernetes locally and they all look similar on the surface. Here is why K3d was the right choice for this project:
+### 1. Cluster and registry
 
-### K3s (the raw version)
-K3s is fantastic — it is a lightweight, production-grade Kubernetes distribution made by Rancher. But installing it directly on your machine means it runs as a **system service**. Tearing it down requires running an uninstall script, and it leaves behind network interfaces and config files. For a development tool you want to spin up and destroy frequently, that is painful.
-
-### Minikube
-Minikube is the most well-known option and works great. But it is **heavier** — it typically spins up a full virtual machine (or a Docker container with more overhead), takes 1-2 minutes to start, and feels slow compared to alternatives. It is better suited for running Kubernetes once and leaving it, not for repeatedly creating and deleting clusters.
-
-### Kind (Kubernetes IN Docker)
-Kind is excellent for CI/CD testing pipelines and is very lightweight. The downside is that it has **less built-in support** for things like Ingress and LoadBalancer services, which are central to this project. Getting traffic routing to work requires extra steps.
-
-### K3d ✅ (what we use)
-K3d wraps K3s inside Docker containers. This gives you the best of both worlds:
-
-- **One command to create:** `k3d cluster create mycluster`
-- **One command to destroy:** `k3d cluster delete mycluster`
-- **Fast:** Cluster is ready in ~30 seconds
-- **Clean:** Everything lives in Docker. Delete the cluster, Docker cleans up. No leftover system files.
-- **No extra dependencies:** If you have Docker, you have everything you need.
-- **Ingress support:** Works out of the box with port mapping to your local machine.
-
-For a project where the cluster is a dev tool rather than a permanent installation, K3d is simply the most ergonomic choice.
-
----
-
-## Prerequisites
-
-- Docker (running)
-- k3d
-- kubectl
-- A GitHub account
-
----
-
-## Quick Start
+The cluster pulls its own images, so it needs a registry it can reach.
 
 ```bash
-# 1. Create the cluster
-k3d cluster create ephemeral-envs --port "80:80@loadbalancer" --port "443:443@loadbalancer"
+k3d registry create registry.localhost --port 5000
 
-# 2. Verify it's running
-kubectl get nodes
+k3d cluster create ephemeral-envs \
+  --registry-use k3d-registry.localhost:5000 \
+  -p "80:80@loadbalancer" -p "443:443@loadbalancer"
+```
 
-# 3. Tear it all down when done
-k3d cluster delete ephemeral-envs
+The registry must answer to the *same name* from your machine and from inside the cluster, so add to `/etc/hosts`:
+
+```
+127.0.0.1 k3d-registry.localhost
+```
+
+> Docker treats registries resolving to loopback as insecure automatically. If a push is refused, add `k3d-registry.localhost:5000` to `insecure-registries` in `/etc/docker/daemon.json`.
+
+### 2. Controllers
+
+```bash
+kluctl controller install
+
+kubectl apply -f https://raw.githubusercontent.com/kluctl/template-controller/v0.9.4/deploy/manifests/template-controller.yaml
+```
+
+### 3. Credentials
+
+```bash
+kubectl apply -f gitops/rbac.yaml
+
+# One secret, two consumers: `token` for the GitHub API,
+# `username`/`password` for cloning this private repo.
+kubectl create secret generic github-credentials \
+  --namespace ephemeral-envs-system \
+  --from-literal=token=ghp_xxx \
+  --from-literal=username=gg-push \
+  --from-literal=password=ghp_xxx
+```
+
+The token needs `repo` scope.
+
+### 4. Start the generator
+
+```bash
+kubectl apply -f gitops/preview-generator.yaml
+```
+
+Open a pull request. An environment appears within a minute or two.
+
+### 5. Optional
+
+```bash
+kubectl apply -k monitoring   # Prometheus + Grafana
 ```
 
 ---
 
-## Project Structure
+## Working on it locally
 
-```
-ephemeral-envs/
-├── app/                    # Sample Python FastAPI app
-│   ├── main.py
-│   ├── models.py
-│   ├── database.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── k8s/                    # Kustomize configurations
-│   ├── base/               # Base YAML manifests (includes seed.sql)
-│   └── cluster-infra/      # Global cluster resources (e.g., TTL CronJob)
-├── .github/
-│   └── workflows/
-│       ├── pr-deploy.yml   # Deploy on PR open
-│       └── pr-cleanup.yml  # Destroy on PR close
-├── plan.md
-└── README.md
+The project the controller deploys is the same one you can drive from a shell — no separate templating step, no commit-and-see-what-happens.
+
+```bash
+# What would change if PR 42 deployed right now?
+kluctl diff -t preview -a pr_number=42 -a image_tag=<sha>
+
+# Render everything, no cluster needed
+kluctl render -t preview --offline-kubernetes \
+  -a pr_number=42 -a image_tag=<sha> --print-all
+
+# Deploy by hand, bypassing GitOps
+kluctl deploy -t preview -a pr_number=42 -a image_tag=<sha>
 ```
 
 ---
 
-## Security Note
+## Layout
 
-This project uses a **self-hosted GitHub Actions runner**. The runner executes jobs directly on your local machine, which means it has access to your K3d cluster.
+```
+.kluctl.yaml                 Targets, args, pruning discriminator
+deployment.yaml              Deployment order and common labels
+deploy/
+  namespace/                 Namespace + ResourceQuota
+  postgres/                  Database + seed data
+  backend/                   FastAPI
+  frontend/                  React
+  ingress/                   Traefik routing
+gitops/
+  rbac.yaml                  Namespace + scoped ServiceAccounts
+  preview-generator.yaml     The entire PR lifecycle, declared
+app/                         FastAPI source + tests
+frontend/                    React source
+monitoring/                  Prometheus + Grafana
+.github/workflows/
+  ci.yml                     Lint, test, render, validate — hosted runners
+  pr-preview.yml             Build and push images — self-hosted
+  pr-closed.yml              Corrects the PR comment — hosted runners
+```
 
-**The repository is kept private for this reason.** Using a self-hosted runner with a public repository is a security risk — anyone could open a PR and execute arbitrary code on your machine via the runner.
+No `kustomization.yaml` files under `deploy/` — kluctl generates one for any directory that lacks it.
 
 ---
 
-## What This Demonstrates
+## Design decisions
 
-- **Kubernetes**: Namespace isolation, Ingress routing, resource quotas, CronJobs
-- **Kustomize**: Overlays, dynamic patching, declarative configuration
-- **GitOps mindset**: Infrastructure driven by Git events
-- **CI/CD**: Event-driven automation with GitHub Actions
-- **Security**: Per-PR dynamically generated Basic Auth credentials via Traefik Middleware
-- **Platform thinking**: Building tools that make other developers' lives easier
+**No `namePrefix`.** Each environment is alone in its namespace, so the Postgres Service is `postgres` everywhere and `DATABASE_URL` is a constant. The previous version prefixed every resource name, which forced per-PR rewriting of the database hostname and caused a string of bugs.
+
+**The discriminator includes the PR number.** kluctl uses it to decide which objects a deployment owns and may prune. A shared discriminator would mean deploying PR 2 prunes PR 1.
+
+**Images are tagged with the head SHA.** A mutable `pr-42` tag cannot answer "which commit is running here." An immutable one can, and it makes every push a real change rather than a no-op.
+
+**Liveness and readiness probe different endpoints.** `/api/health` checks the database and returns 503 when it is unreachable, so readiness pulls the pod from the Service. `/api/live` touches nothing, so a slow Postgres cannot cascade into restarting the app.
+
+**`deployInterval: 5m`.** Environments redeploy on a timer even with no changes, so manual edits are corrected instead of drifting.
+
+**No dashboard.** The PR comment carries the URL and the reviewer is already on the PR — the same interface Vercel and Netlify use. `kubectl get ns` and `kluctl webui` cover the operator view.
+
+---
+
+## Testing
+
+```bash
+pip install -r app/requirements-dev.txt
+ruff check . && pytest
+```
+
+CI additionally renders the project offline and asserts the templated values. That step matters more than it looks: **a Jinja2 typo does not fail, it renders an empty string.** `{{ args.pr_numbr }}` would silently produce a namespace called `pr-`, shared by every environment. CI checks the rendered output so that fails loudly.
+
+---
+
+## Security
+
+- **CI holds no cluster credentials.** Delivery is pull-based; the runner only builds and pushes images.
+- **Self-hosted workflows refuse to run for forks**, so external PR code never reaches the machine.
+- **The deployer ServiceAccount is scoped** to the resource types a preview environment is made of, not cluster-admin.
+- **The repo is private.** A self-hosted runner on a public repo lets anyone run code on your machine.
+- Grafana runs with anonymous access for local convenience. Do not expose it.
+
+---
+
+## Known gaps
+
+Deliberately out of scope for now — see `plan.md`.
+
+| Gap | Why |
+|---|---|
+| No Basic Auth on environments | A generated password cannot be committed to Git; every fix adds a component. Everything is on `127.0.0.1` and the repo is private. |
+| No TTL | Closed PRs are cleaned up. A PR left open for a month keeps its environment. |
+| Only previews are under GitOps | `monitoring/` is still applied by hand. |
+
+---
+
+## Why kluctl, not ArgoCD or Flux
+
+All three do GitOps. The differences that decided it:
+
+- **Flux** has no pull-request generator. The dynamic part — one environment per open PR — would have been mine to build and maintain.
+- **ArgoCD** solves it well with `ApplicationSet`, and is the better-known tool. But per-PR values thread through `spec.source.kustomize.patches`, which is awkward, and a full install is ~6 pods on a laptop that is already busy.
+- **kluctl** has the same generator concept, native Jinja2 so per-PR values are just `{{ args.pr_number }}` inline, and — the decider — **the same project deploys identically from the CLI and the controller**, so `kluctl diff` shows exactly what GitOps will do.
+
+The concepts are identical across all three, so this cost nothing conceptually and bought a much better local loop.
