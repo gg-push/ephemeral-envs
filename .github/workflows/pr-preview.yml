@@ -19,7 +19,19 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: k3d-registry.localhost:5000
+  # Push and pull addresses differ, deliberately.
+  #
+  # Docker only exempts the literal host `localhost` and IPs in 127.0.0.0/8
+  # from requiring TLS — it does not resolve `k3d-registry.localhost` to
+  # discover that it is loopback, so pushing to that name fails with
+  # "server gave HTTP response to HTTPS client". Pushing via 127.0.0.1
+  # avoids that with no change to the Docker daemon config.
+  #
+  # It is the same registry either way: images are stored by repository name,
+  # and the cluster pulls them as k3d-registry.localhost:5000/... (the name
+  # its containerd mirror is configured for). See the `registry` arg default
+  # in .kluctl.yaml.
+  PUSH_REGISTRY: 127.0.0.1:5000
   BASE_DOMAIN: local.127.0.0.1.nip.io
 
 jobs:
@@ -39,14 +51,14 @@ jobs:
         with:
           context: ./app
           push: true
-          tags: ${{ env.REGISTRY }}/ephemeral-envs-backend:${{ github.event.pull_request.head.sha }}
+          tags: ${{ env.PUSH_REGISTRY }}/ephemeral-envs-backend:${{ github.event.pull_request.head.sha }}
 
       - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.REGISTRY }}/ephemeral-envs-frontend:${{ github.event.pull_request.head.sha }}
+          tags: ${{ env.PUSH_REGISTRY }}/ephemeral-envs-frontend:${{ github.event.pull_request.head.sha }}
 
       - name: Wait for the environment to converge
         id: wait
