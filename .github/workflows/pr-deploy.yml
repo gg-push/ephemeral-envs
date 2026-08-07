@@ -36,14 +36,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/ephemeral-envs:pr-${{ github.event.pull_request.number }}
         run: |
-          # Generate a random 12-character password and hash it using Python
-          # We use crypt for the hash which Nginx Ingress natively supports
-          AUTH_SCRIPT="import string, random, crypt; pw=''.join(random.choices(string.ascii_letters + string.digits, k=12)); hashed=crypt.crypt(pw, crypt.mksalt(crypt.METHOD_SHA512)); print(pw); print(f'admin:{hashed}')"
+          # Generate a random 12-character password using standard bash utilities
+          PR_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 12 || true)
           
-          # Run python script and store results
-          RAW_OUTPUT=$(python3 -c "$AUTH_SCRIPT")
-          PR_PASSWORD=$(echo "$RAW_OUTPUT" | head -n 1)
-          AUTH_HASH=$(echo "$RAW_OUTPUT" | tail -n 1)
+          # Use the official lightweight Apache Alpine container to generate the htpasswd hash
+          AUTH_HASH=$(docker run --rm httpd:alpine htpasswd -nb admin "$PR_PASSWORD")
           
           # Pass the password to the next step so the bot can comment it
           echo "password=$PR_PASSWORD" >> "$GITHUB_OUTPUT"
