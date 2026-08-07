@@ -6,3 +6,6 @@ __pycache__/
 README.md
 plan.md
 production-concepts.md
+actions-runner/
+node_modules/
+dist/

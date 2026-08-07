@@ -364,7 +364,7 @@ def index(db: Session = Depends(get_db)):
     return render_page(tasks)
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     try:
         db.execute(sqlalchemy.text("SELECT 1"))
@@ -381,7 +381,7 @@ def health(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/db/info")
+@app.get("/api/db/info")
 def db_info(db: Session = Depends(get_db)):
     count = db.query(Task).count()
     return {
@@ -392,12 +392,12 @@ def db_info(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/tasks", response_model=list[TaskResponse])
+@app.get("/api/tasks", response_model=list[TaskResponse])
 def list_tasks(db: Session = Depends(get_db)):
     return db.query(Task).order_by(Task.created_at).all()
 
 
-@app.post("/tasks", response_model=TaskResponse, status_code=201)
+@app.post("/api/tasks", response_model=TaskResponse, status_code=201)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     task = Task(title=payload.title)
     db.add(task)
@@ -406,7 +406,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     return task
 
 
-@app.post("/tasks/create")
+@app.post("/api/tasks/create")
 def create_task_form(title: str = Form(...), db: Session = Depends(get_db)):
     task = Task(title=title)
     db.add(task)
@@ -414,7 +414,7 @@ def create_task_form(title: str = Form(...), db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
-@app.post("/tasks/{task_id}/toggle")
+@app.post("/api/tasks/{task_id}/toggle")
 def toggle_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
@@ -424,7 +424,7 @@ def toggle_task(task_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
-@app.delete("/tasks/{task_id}", status_code=204)
+@app.delete("/api/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
@@ -433,7 +433,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-@app.post("/tasks/{task_id}/delete")
+@app.post("/api/tasks/{task_id}/delete")
 def delete_task_form(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if task:
