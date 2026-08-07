@@ -3,3 +3,6 @@ __pycache__/
 .env
 .idea/
 .vscode/
+README.md
+plan.md
+production-concepts.md
