@@ -40,7 +40,7 @@ jobs:
           k3d image import $IMAGE_TAG -c ephemeral-envs
           
           # Generate a random 12-character password using standard bash utilities
-          PR_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 12 || true)
+          PR_PASSWORD=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 12 2>/dev/null || true)
           
           # Use the official lightweight Apache Alpine container to generate the htpasswd hash
           AUTH_HASH=$(docker run --rm httpd:alpine htpasswd -nb admin "$PR_PASSWORD")
