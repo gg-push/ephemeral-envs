@@ -84,13 +84,15 @@ k3d cluster create ephemeral-envs \
   -p "80:80@loadbalancer" -p "443:443@loadbalancer"
 ```
 
-The registry must answer to the *same name* from your machine and from inside the cluster, so add to `/etc/hosts`:
+> **Push and pull use different addresses, on purpose.**
+>
+> CI pushes to `127.0.0.1:5000`; the cluster pulls from `k3d-registry.localhost:5000`. It is the same registry — images are stored by repository name, and the hostname is only how you reach it.
+>
+> The reason: Docker exempts only the literal host `localhost` and IPs in `127.0.0.0/8` from requiring TLS. It does *not* resolve `k3d-registry.localhost` to discover it is loopback, so pushing to that name fails with `server gave HTTP response to HTTPS client`. Going via `127.0.0.1` sidesteps it without touching your Docker daemon config.
+>
+> If you would rather use one name everywhere, add `k3d-registry.localhost:5000` to `insecure-registries` in `/etc/docker/daemon.json`, restart Docker, and set `PUSH_REGISTRY` in `pr-preview.yml` to match.
 
-```
-127.0.0.1 k3d-registry.localhost
-```
-
-> Docker treats registries resolving to loopback as insecure automatically. If a push is refused, add `k3d-registry.localhost:5000` to `insecure-registries` in `/etc/docker/daemon.json`.
+Most systems resolve `*.localhost` to loopback automatically (RFC 6761, handled by systemd-resolved). Check with `getent ahosts k3d-registry.localhost`; if it does not resolve, add `127.0.0.1 k3d-registry.localhost` to `/etc/hosts`.
 
 ### 2. Controllers
 
