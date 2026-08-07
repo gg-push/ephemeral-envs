@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devboard-app
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  selector:
+    app: devboard
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devboard-app
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devboard
+  template:
+    metadata:
+      labels:
+        app: devboard
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: app
+          image: "{{ args.registry }}/ephemeral-envs-backend:{{ args.image_tag }}"
+          ports:
+            - containerPort: 8000
+          env:
+            # Every environment gets its own namespace, so the Postgres Service
+            # name is identical everywhere and needs no per-PR rewriting.
+            - name: DATABASE_URL
+              value: postgresql://postgres:postgres@postgres:5432/devboard
+            - name: ENV_NAME
+              value: "pr-{{ args.pr_number }}"
+            - name: PR_NUMBER
+              value: "{{ args.pr_number }}"
+            - name: APP_VERSION
+              value: "{{ args.image_tag[:7] }}"
+          # Startup gets a generous budget because the app waits for Postgres
+          # rather than crash-looping until it appears.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 5
+          # Liveness deliberately uses the endpoint that does not touch the
+          # database, so a slow Postgres cannot cascade into killing the app.
+          livenessProbe:
+            httpGet:
+              path: /api/live
+              port: 8000
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"

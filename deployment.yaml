@@ -1,0 +1,28 @@
+# Root deployment project.
+#
+# No kustomization.yaml files are committed under deploy/. kluctl generates one
+# automatically for any directory that lacks it, so each directory is just the
+# manifests it owns.
+
+deployments:
+  # The namespace has to exist before anything can be placed inside it, so this
+  # is the one place a barrier is genuinely required.
+  - path: deploy/namespace
+  - barrier: true
+    message: Waiting for the preview namespace
+
+  - path: deploy/postgres
+  - path: deploy/backend
+  - path: deploy/frontend
+  - path: deploy/ingress
+
+# Applied to every object kluctl deploys. These are what make an environment
+# identifiable from kubectl and Grafana without having to parse the namespace
+# name.
+commonLabels:
+  app.kubernetes.io/managed-by: kluctl
+  ephemeral-env: "true"
+  pr-number: "{{ args.pr_number }}"
+
+commonAnnotations:
+  ephemeral-envs/image-tag: "{{ args.image_tag }}"

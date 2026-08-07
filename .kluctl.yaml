@@ -1,0 +1,33 @@
+# Entry point for the kluctl deployment project.
+#
+# There is exactly one target. Preview environments are not separate targets —
+# they are the same target deployed repeatedly with different args, one set per
+# open pull request. The GitOps controller supplies those args.
+
+# The discriminator is how kluctl decides which objects belong to a deployment
+# and may therefore be pruned. It MUST include pr_number: without it every
+# preview would share one identity and deploying PR 2 would prune PR 1.
+discriminator: "ephemeral-envs-{{ target.name }}-{{ args.pr_number }}"
+
+targets:
+  - name: preview
+    # No context is pinned here on purpose. The controller runs in-cluster and
+    # uses its ServiceAccount, and pinning a context would break that.
+    args:
+      pr_number: "0"
+
+args:
+  # The pull request number this environment belongs to.
+  - name: pr_number
+
+  # Image tag to deploy, normally the PR head commit SHA.
+  - name: image_tag
+    default: latest
+
+  # Registry the cluster pulls application images from.
+  - name: registry
+    default: k3d-registry.localhost:5000
+
+  # Wildcard DNS suffix used to build the environment URL.
+  - name: base_domain
+    default: local.127.0.0.1.nip.io
