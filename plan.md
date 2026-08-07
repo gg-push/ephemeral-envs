@@ -144,9 +144,9 @@ Helm uninstall + Delete namespace → Everything destroyed
 - [ ] Ensure full isolation of LocalStack data per PR
 
 ### Phase 7: Full-Stack Multi-Container Architecture
-- [ ] Add a frontend service container (e.g., React, Next.js, or Vue)
-- [ ] Update Traefik Ingress to route `/api/*` to Python backend and `/*` to Frontend
-- [ ] Configure frontend to dynamically point to the correct backend API URL
+- [x] Add a frontend service container (e.g., React, Next.js, or Vue)
+- [x] Update Traefik Ingress to route `/api/*` to Python backend and `/*` to Frontend
+- [x] Configure frontend to dynamically point to the correct backend API URL
 
 ### Phase 8: Ephemeral Observability Dashboard
 - [ ] Deploy global Grafana/Prometheus stack to the cluster
@@ -154,9 +154,9 @@ Helm uninstall + Delete namespace → Everything destroyed
 - [ ] Configure dashboards to track CPU, memory, and API latency for the specific `pr-*` namespace
 
 ### Phase 9: Central Developer Portal
-- [ ] Build a lightweight "Control Panel" web app deployed in the `default` namespace
-- [ ] Configure app to read Kubernetes API and list all active `pr-*` namespaces
-- [ ] Provide one-click clickable links to all live preview environments on the cluster
+- [x] Build a lightweight "Control Panel" web app deployed in the `default` namespace
+- [x] Configure app to read Kubernetes API and list all active `pr-*` namespaces
+- [x] Provide one-click clickable links to all live preview environments on the cluster
 
 ---
 
