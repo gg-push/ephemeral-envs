@@ -9,7 +9,7 @@ metadata:
     nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required - PR Environment'
 spec:
   rules:
-    - host: pr-0.127.0.0.1.nip.io
+    - host: pr-0.local.127.0.0.1.nip.io
       http:
         paths:
           - path: /
