@@ -60,7 +60,8 @@ jobs:
           
           images:
             - name: ghcr.io/yourusername/ephemeral-envs
-              newName: $IMAGE_TAG
+              newName: ghcr.io/${{ github.repository_owner }}/ephemeral-envs
+              newTag: pr-$PR_NUMBER
               
           # Dynamically create the basic-auth secret containing our generated hash
           secretGenerator:
