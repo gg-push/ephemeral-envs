@@ -4,79 +4,72 @@ import './index.css';
 function App() {
   const [environments, setEnvironments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchEnvironments();
-    const interval = setInterval(fetchEnvironments, 10000);
+    const interval = setInterval(fetchEnvironments, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const fetchEnvironments = async () => {
     try {
-      const response = await fetch('/api/environments');
-      if (!response.ok) throw new Error('Failed to fetch environments');
-      const data = await response.json();
+      const res = await fetch('/api/environments');
+      const data = await res.json();
       setEnvironments(data.environments || []);
-      setError(null);
     } catch (err) {
-      console.error(err);
-      setError('Could not connect to cluster API');
+      console.error("Failed to load environments", err);
     } finally {
       setLoading(false);
     }
   };
 
+  const timeAgo = (dateString) => {
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    const daysDifference = Math.round((new Date(dateString) - new Date()) / (1000 * 60 * 60 * 24));
+    return rtf.format(daysDifference, 'day');
+  };
+
   return (
-    <div className="container">
+    <div className="layout">
       <header>
-        <h1>Developer Control Panel</h1>
-        <p className="subtitle">Active Ephemeral Previews</p>
+        <div className="brand">Deployments</div>
       </header>
 
-      {loading && environments.length === 0 ? (
-        <div className="loader"></div>
-      ) : error ? (
-        <div style={{ textAlign: 'center', color: 'var(--warning)' }}>{error}</div>
-      ) : environments.length === 0 ? (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-          No active pull requests found. Open a PR to spin one up!
-        </div>
-      ) : (
-        <div className="envs-grid">
-          {environments.map(env => (
-            <div className="env-card" key={env.id}>
-              <div className="env-header">
-                <span className="env-title">{env.name}</span>
-                <span className={`status-badge ${env.status.toLowerCase()}`}>
-                  {env.status}
-                </span>
-              </div>
-              
-              {env.url ? (
-                <a href={env.url} target="_blank" rel="noreferrer" className="env-url">
-                  {env.url.replace('http://', '')}
+      <main>
+        {loading && environments.length === 0 ? (
+          <div className="empty-state">Loading environments...</div>
+        ) : environments.length === 0 ? (
+          <div className="empty-state">
+            <p>No active pull requests found.</p>
+          </div>
+        ) : (
+          <div className="environments-list">
+            {environments.map(env => (
+              <div className="env-card" key={env.id}>
+                <div className="env-info">
+                  <div className="env-title">{env.name}</div>
+                  <div className="env-meta">
+                    <span className={`badge ${env.status.toLowerCase()}`}>
+                      {env.status}
+                    </span>
+                    <span>Created {timeAgo(env.created_at)}</span>
+                  </div>
+                </div>
+                
+                <a 
+                  href={env.url} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="btn"
+                  style={env.status !== 'Ready' ? { pointerEvents: 'none', opacity: 0.5 } : {}}
+                >
+                  Visit Deployment
                 </a>
-              ) : (
-                <span className="env-url">Waiting for DNS...</span>
-              )}
-              
-              <a 
-                href={env.url} 
-                target="_blank" 
-                rel="noreferrer" 
-                className="btn"
-                style={{
-                  pointerEvents: env.status !== 'Ready' ? 'none' : 'auto',
-                  opacity: env.status !== 'Ready' ? 0.5 : 1
-                }}
-              >
-                {env.status === 'Ready' ? 'Open Preview' : 'Deploying...'}
-              </a>
-            </div>
-          ))}
-        </div>
-      )}
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
