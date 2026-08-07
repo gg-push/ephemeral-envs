@@ -1,0 +1,69 @@
+{
+  "title": "Ephemeral PR Environments",
+  "uid": "ephemeral-envs-metrics",
+  "schemaVersion": 38,
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(namespace)",
+        "regex": "pr-.*",
+        "sort": 1,
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API Request Rate ($namespace)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{namespace=~\"$namespace\"}[1m])",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Latency ($namespace)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_sum{namespace=~\"$namespace\"}[1m]) / rate(http_request_duration_seconds_count{namespace=~\"$namespace\"}[1m])",
+          "legendFormat": "Avg Latency (s)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Total API Requests",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{namespace=~\"$namespace\"})",
+          "legendFormat": "Total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Active Replicas",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(kube_deployment_status_replicas_available{namespace=~\"$namespace\"})",
+          "legendFormat": "Replicas"
+        }
+      ]
+    }
+  ]
+}
