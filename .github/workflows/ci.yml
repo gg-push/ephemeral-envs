@@ -84,8 +84,8 @@ jobs:
           # environment. These assertions make that loud.
           grep -q "name: pr-999" /tmp/rendered.yaml
           grep -q "host: pr-999.local.127.0.0.1.nip.io" /tmp/rendered.yaml
-          grep -q "ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
-          grep -q "ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q "ghcr.io/gg-push/ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q "ghcr.io/gg-push/ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
           grep -q 'value: deadbee' /tmp/rendered.yaml   # APP_VERSION, truncated
 
           if grep -qE "namespace: (pr-)?$|\{\{|\}\}" /tmp/rendered.yaml; then
