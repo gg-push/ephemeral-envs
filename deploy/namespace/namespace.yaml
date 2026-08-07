@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "pr-{{ args.pr_number }}"
+  annotations:
+    ephemeral-envs/pr-url: "https://github.com/gg-push/ephemeral-envs/pull/{{ args.pr_number }}"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: env-quota
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  hard:
+    # Total across every pod in this environment. Headroom is deliberate:
+    # a rolling update briefly runs two copies of a deployment.
+    limits.cpu: "1000m"
+    limits.memory: "1Gi"
+    requests.cpu: "400m"
+    requests.memory: "512Mi"
+    pods: "5"

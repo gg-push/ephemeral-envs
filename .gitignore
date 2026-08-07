@@ -1,8 +1,19 @@
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 .env
 .idea/
 .vscode/
-README.md
-plan.md
+
+# Personal working notes, deliberately untracked.
 production-concepts.md
+
+# The self-hosted runner installs itself here and holds its credentials.
+actions-runner/
+
+# kluctl render output when written to a directory.
+.rendered/
+
+node_modules/
+dist/
