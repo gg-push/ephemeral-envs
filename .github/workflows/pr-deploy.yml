@@ -80,6 +80,19 @@ jobs:
                 - op: replace
                   path: /spec/rules/0/host
                   value: pr-$PR_NUMBER.127.0.0.1.nip.io
+            - target:
+                kind: Deployment
+                name: devboard-app
+              patch: |-
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/0/value
+                  value: postgresql://postgres:postgres@pr-$PR_NUMBER-postgres:5432/devboard
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/1/value
+                  value: pr-$PR_NUMBER
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/2/value
+                  value: "$PR_NUMBER"
           EOF
           
           # 2. Ensure the namespace exists
