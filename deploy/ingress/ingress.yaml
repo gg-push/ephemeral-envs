@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devboard-ingress
+  namespace: "pr-{{ args.pr_number }}"
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: traefik
+  rules:
+    # nip.io resolves any *.127.0.0.1.nip.io name to 127.0.0.1, so each PR gets
+    # a distinct hostname with no DNS setup at all.
+    - host: "pr-{{ args.pr_number }}.{{ args.base_domain }}"
+      http:
+        paths:
+          # The backend owns the /api prefix itself, so nothing is stripped.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: devboard-app
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-app
+                port:
+                  number: 80

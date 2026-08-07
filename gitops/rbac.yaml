@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ephemeral-envs-system
+---
+# Used by the ObjectTemplate to create and prune KluctlDeployment objects.
+# It can only touch those, and only in its own namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-templater
+  namespace: ephemeral-envs-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: preview-templater
+  namespace: ephemeral-envs-system
+rules:
+  - apiGroups: ["gitops.kluctl.io"]
+    resources: ["kluctldeployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: preview-templater
+  namespace: ephemeral-envs-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: preview-templater
+subjects:
+  - kind: ServiceAccount
+    name: preview-templater
+    namespace: ephemeral-envs-system
+---
+# Used by each generated KluctlDeployment to actually deploy an environment.
+# Scoped to the resource types a preview environment is made of rather than
+# cluster-admin, so a templating mistake cannot reach the rest of the cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-deployer
+  namespace: ephemeral-envs-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-deployer
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - services
+      - configmaps
+      - resourcequotas
+      - persistentvolumeclaims
+      - pods
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: preview-deployer
+subjects:
+  - kind: ServiceAccount
+    name: preview-deployer
+    namespace: ephemeral-envs-system
