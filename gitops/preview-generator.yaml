@@ -20,6 +20,13 @@ spec:
   repo: ephemeral-envs
   state: open
   base: main
+  # Only branches in this repository, never a fork.
+  #
+  # This is the fork guard. It matters most once the repository is public:
+  # without it, anyone could open a pull request and have their branch
+  # deployed into this cluster. `head` is matched as a regex against
+  # "<owner>:<branch>".
+  head: gg-push:.*
   # Safeguard against accidentally spawning an environment per PR on a
   # repository that has hundreds of them.
   limit: 50
@@ -79,3 +86,47 @@ spec:
               - host: github.com
                 secretRef:
                   name: github-credentials
+
+    # The PR comment is posted from inside the cluster rather than from CI.
+    #
+    # CI runs on GitHub-hosted runners now and cannot reach a preview URL to
+    # check anything, but the deeper reason is that a comment written by a
+    # build job is a snapshot: if the environment dies an hour later the
+    # comment still claims it is live. This one exists for exactly as long as
+    # the pull request is open, because it is generated from the same matrix
+    # as the deployment.
+    - object:
+        apiVersion: templates.kluctl.io/v1alpha1
+        kind: GithubComment
+        metadata:
+          name: "pr-{{ matrix.pr.number }}-comment"
+          namespace: ephemeral-envs-system
+        spec:
+          github:
+            owner: gg-push
+            repo: ephemeral-envs
+            # Quoted because bare {{ would be YAML flow-mapping syntax. The
+            # controller renders the string and coerces it back to the number
+            # the CRD expects.
+            pullRequestId: "{{ matrix.pr.number }}"
+            tokenRef:
+              secretName: github-credentials
+              key: token
+          comment:
+            # Keyed so the controller edits one comment in place instead of
+            # adding a new one on every push.
+            id: ephemeral-env
+            source:
+              text: |
+                <!-- ephemeral-env -->
+                ### Preview environment
+
+                | | |
+                |---|---|
+                | **URL** | http://pr-{{ matrix.pr.number }}.local.127.0.0.1.nip.io |
+                | **Commit** | `{{ matrix.pr.head.sha[:7] }}` |
+                | **Namespace** | `pr-{{ matrix.pr.number }}` |
+
+                Managed by the kluctl controller for as long as this pull
+                request is open. Allow a minute or so after each push for the
+                new commit to roll out.

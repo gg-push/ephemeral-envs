@@ -33,11 +33,11 @@ There is no cleanup code in this repository. Teardown is a property of the syste
 flowchart LR
     GH[(GitHub)]
 
-    subgraph CI [GitHub Actions]
+    subgraph CI [GitHub Actions<br/>hosted runners]
         B[Build images<br/>no cluster credentials]
     end
 
-    REG[(Local registry)]
+    REG[(GHCR)]
 
     subgraph K [K3d cluster]
         L[ListGithubPullRequests<br/>polls every 1m]
@@ -61,38 +61,36 @@ Three resources own the whole lifecycle:
 | Resource | Job |
 |---|---|
 | `ListGithubPullRequests` | Polls the GitHub API, publishes open PRs to its `status` |
-| `ObjectTemplate` | Treats that list as a matrix, renders one `KluctlDeployment` each |
+| `ObjectTemplate` | Treats that list as a matrix, renders one `KluctlDeployment` and one `GithubComment` each |
 | `KluctlDeployment` | Deploys that PR's branch into `pr-<number>` |
 
-When a PR closes it leaves the list, the matrix input vanishes, and the deployment is pruned.
+When a PR closes it leaves the list, the matrix input vanishes, and both generated objects are pruned.
 
-**GitHub Actions only builds images.** It holds no cluster credentials.
+**GitHub Actions only builds images**, on hosted runners. There is no self-hosted runner and no cluster credential anywhere in CI.
+
+The PR comment is posted from inside the cluster too. A comment written by a build job is a snapshot — if the environment dies an hour later it still claims to be live. This one is generated from the same matrix as the deployment, so it exists exactly as long as the pull request does.
 
 ---
 
 ## Setup
 
-### 1. Cluster and registry
-
-The cluster pulls its own images, so it needs a registry it can reach.
+### 1. Cluster
 
 ```bash
-k3d registry create registry.localhost --port 5000
-
 k3d cluster create ephemeral-envs \
-  --registry-use k3d-registry.localhost:5000 \
   -p "80:80@loadbalancer" -p "443:443@loadbalancer"
 ```
 
-> **Push and pull use different addresses, on purpose.**
->
-> CI pushes to `127.0.0.1:5000`; the cluster pulls from `k3d-registry.localhost:5000`. It is the same registry — images are stored by repository name, and the hostname is only how you reach it.
->
-> The reason: Docker exempts only the literal host `localhost` and IPs in `127.0.0.0/8` from requiring TLS. It does *not* resolve `k3d-registry.localhost` to discover it is loopback, so pushing to that name fails with `server gave HTTP response to HTTPS client`. Going via `127.0.0.1` sidesteps it without touching your Docker daemon config.
->
-> If you would rather use one name everywhere, add `k3d-registry.localhost:5000` to `insecure-registries` in `/etc/docker/daemon.json`, restart Docker, and set `PUSH_REGISTRY` in `pr-preview.yml` to match.
+That is all it needs. Images come from GHCR, so there is no local registry to run and nothing to configure in your Docker daemon.
 
-Most systems resolve `*.localhost` to loopback automatically (RFC 6761, handled by systemd-resolved). Check with `getent ahosts k3d-registry.localhost`; if it does not resolve, add `127.0.0.1 k3d-registry.localhost` to `/etc/hosts`.
+### 1b. Make the image packages public
+
+After the first build pushes them, set both packages to public under **GitHub → Packages → package → Settings → Change visibility**:
+
+- `ephemeral-envs-backend`
+- `ephemeral-envs-frontend`
+
+Package visibility is independent of repository visibility, so a private repo can publish public images. This is what lets preview namespaces pull without an `imagePullSecret` — which would otherwise mean putting a registry token in Git.
 
 ### 2. Controllers
 
@@ -208,11 +206,23 @@ CI additionally renders the project offline and asserts the templated values. Th
 
 ## Security
 
-- **CI holds no cluster credentials.** Delivery is pull-based; the runner only builds and pushes images.
-- **Self-hosted workflows refuse to run for forks**, so external PR code never reaches the machine.
+- **No self-hosted runner.** Everything in CI runs on GitHub-hosted runners. Nothing in this repository can cause code to execute on the cluster operator's machine.
+- **CI holds no cluster credentials.** Delivery is pull-based; CI only builds and pushes images.
+- **Fork branches never become environments.** `ListGithubPullRequests` filters on `head: gg-push:.*`, so only branches in this repository are deployed. This is the guard that matters if the repo is public — without it, anyone could open a PR and have their branch run in the cluster.
 - **The deployer ServiceAccount is scoped** to the resource types a preview environment is made of, not cluster-admin.
-- **The repo is private.** A self-hosted runner on a public repo lets anyone run code on your machine.
 - Grafana runs with anonymous access for local convenience. Do not expose it.
+
+## Running it on a real cluster
+
+The only laptop-specific value is `base_domain` in `.kluctl.yaml`. Point it at a wildcard domain and the same project deploys unchanged.
+
+Three of the gaps below stop being optional at that point, which is really what separates a laptop setup from a server one:
+
+- **TLS** — cert-manager with a DNS-01 wildcard certificate
+- **Auth** — the environments are on the internet now
+- **TTL** — idle environments cost money once you are paying for the node
+
+`monitoring/grafana.yaml` also hardcodes its hostname and would need the same treatment.
 
 ---
 
