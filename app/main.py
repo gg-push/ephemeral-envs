@@ -315,7 +315,7 @@ def render_page(tasks: list[Task]) -> str:
 
       <div class="section">
         <div class="section-header">
-          <span class="section-title">Tasks</span>
+          <span class="section-title">PR Preview</span>
           <span class="count-badge">{len(tasks)}</span>
         </div>
         <div class="section-body">{task_html}</div>
