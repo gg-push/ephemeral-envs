@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-panel-backend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: control-panel-backend
+  template:
+    metadata:
+      labels:
+        app: control-panel-backend
+    spec:
+      serviceAccountName: control-panel-sa
+      containers:
+      - name: backend
+        image: control-panel-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-panel-frontend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: control-panel-frontend
+  template:
+    metadata:
+      labels:
+        app: control-panel-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: control-panel-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
