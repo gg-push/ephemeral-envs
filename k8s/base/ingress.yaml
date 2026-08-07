@@ -10,10 +10,17 @@ spec:
     - host: pr-0.local.127.0.0.1.nip.io
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: devboard-app
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-app
                 port:
                   number: 80

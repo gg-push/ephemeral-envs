@@ -138,7 +138,25 @@ Helm uninstall + Delete namespace → Everything destroyed
 ### Phase 6: Advanced Enterprise Features (Optional)
 
 - [x] Implement Web-Scraper Protection (Basic Auth via Ingress annotations)
-- [ ] Implement Dependency Mocking (LocalStack for AWS)
+- [ ] Phase 6: Cloud Dependency Mocking (LocalStack)
+- [ ] Add LocalStack to the Kustomize deployment to mock AWS S3/SQS
+- [ ] Update Python app to interact with the mocked S3 bucket
+- [ ] Ensure full isolation of LocalStack data per PR
+
+### Phase 7: Full-Stack Multi-Container Architecture
+- [ ] Add a frontend service container (e.g., React, Next.js, or Vue)
+- [ ] Update Traefik Ingress to route `/api/*` to Python backend and `/*` to Frontend
+- [ ] Configure frontend to dynamically point to the correct backend API URL
+
+### Phase 8: Ephemeral Observability Dashboard
+- [ ] Deploy global Grafana/Prometheus stack to the cluster
+- [ ] Automatically generate and inject PR-specific metrics dashboard URL into GitHub comment
+- [ ] Configure dashboards to track CPU, memory, and API latency for the specific `pr-*` namespace
+
+### Phase 9: Central Developer Portal
+- [ ] Build a lightweight "Control Panel" web app deployed in the `default` namespace
+- [ ] Configure app to read Kubernetes API and list all active `pr-*` namespaces
+- [ ] Provide one-click clickable links to all live preview environments on the cluster
 
 ---
 
