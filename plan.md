@@ -149,9 +149,9 @@ Helm uninstall + Delete namespace → Everything destroyed
 - [x] Configure frontend to dynamically point to the correct backend API URL
 
 ### Phase 8: Ephemeral Observability Dashboard
-- [ ] Deploy global Grafana/Prometheus stack to the cluster
-- [ ] Automatically generate and inject PR-specific metrics dashboard URL into GitHub comment
-- [ ] Configure dashboards to track CPU, memory, and API latency for the specific `pr-*` namespace
+- [x] Deploy global Grafana/Prometheus stack to the cluster
+- [x] Automatically generate and inject PR-specific metrics dashboard URL into GitHub comment
+- [x] Configure dashboards to track CPU, memory, and API latency for the specific `pr-*` namespace
 
 ### Phase 9: Central Developer Portal
 - [x] Build a lightweight "Control Panel" web app deployed in the `default` namespace

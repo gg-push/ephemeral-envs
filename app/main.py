@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import sqlalchemy
@@ -47,6 +49,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Start Prometheus metrics instrumentator
+Instrumentator().instrument(app).expose(app)
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class TaskCreate(BaseModel):
@@ -76,11 +89,11 @@ def render_page(tasks: list[Task]) -> str:
         checked_class = "checked" if t.done else ""
         task_rows += f"""
         <li class="task-item {seed_class}">
-          <form method="post" action="/tasks/{t.id}/toggle" style="display:contents">
+          <form method="post" action="/api/tasks/{t.id}/toggle" style="display:contents">
             <button type="submit" class="check-btn {checked_class}">{checkmark}</button>
           </form>
           <span class="task-label {done_class}">{t.title}</span>
-          <form method="post" action="/tasks/{t.id}/delete" style="display:contents">
+          <form method="post" action="/api/tasks/{t.id}/delete" style="display:contents">
             <button type="submit" class="delete-btn" title="Delete">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -305,7 +318,7 @@ def render_page(tasks: list[Task]) -> str:
       <div class="section">
         <div class="section-header"><span class="section-title">New Task</span></div>
         <div class="section-body">
-          <form class="add-form" method="post" action="/tasks/create">
+          <form class="add-form" method="post" action="/api/tasks/create">
             <input class="add-input" name="title" type="text"
               placeholder="What needs to be done?" required autocomplete="off" />
             <button class="add-btn" type="submit">Add</button>
