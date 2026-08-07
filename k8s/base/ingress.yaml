@@ -4,9 +4,7 @@ metadata:
   name: devboard-ingress
   annotations:
     ingress.kubernetes.io/ssl-redirect: "false"
-    nginx.ingress.kubernetes.io/auth-type: basic
-    nginx.ingress.kubernetes.io/auth-secret: basic-auth
-    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required - PR Environment'
+    traefik.ingress.kubernetes.io/router.middlewares: pr-0-basic-auth@kubernetescrd
 spec:
   rules:
     - host: pr-0.local.127.0.0.1.nip.io

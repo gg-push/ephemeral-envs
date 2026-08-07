@@ -48,6 +48,25 @@ jobs:
           # Pass the password to the next step so the bot can comment it
           echo "password=$PR_PASSWORD" >> "$GITHUB_OUTPUT"
           
+          # Dynamically create the basic-auth secret containing our generated hash
+          kubectl create namespace pr-$PR_NUMBER --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic basic-auth \
+            --from-literal=users="$AUTH_HASH" \
+            --namespace pr-$PR_NUMBER \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Create Traefik BasicAuth Middleware pointing to the secret
+          cat <<MIDDLEWARE | kubectl apply -f -
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: basic-auth
+            namespace: pr-$PR_NUMBER
+          spec:
+            basicAuth:
+              secret: basic-auth
+          MIDDLEWARE
+          
           # 1. Create a dynamic Kustomize overlay for this specific PR
           mkdir -p k8s/overlays/pr-$PR_NUMBER
           
@@ -65,12 +84,6 @@ jobs:
             - name: ghcr.io/yourusername/ephemeral-envs
               newName: ghcr.io/${{ github.repository_owner }}/ephemeral-envs
               newTag: pr-$PR_NUMBER
-              
-          # Dynamically create the basic-auth secret containing our generated hash
-          secretGenerator:
-            - name: basic-auth
-              literals:
-                - auth='$AUTH_HASH'
               
           patches:
             - target:
@@ -95,10 +108,7 @@ jobs:
                   value: "$PR_NUMBER"
           EOF
           
-          # 2. Ensure the namespace exists
-          kubectl create namespace pr-$PR_NUMBER --dry-run=client -o yaml | kubectl apply -f -
-          
-          # 3. Apply the overlay to the cluster
+          # 2. Apply the overlay to the cluster
           kubectl apply -k k8s/overlays/pr-$PR_NUMBER
           
           # 4. Wait for the application to actually be running before commenting
