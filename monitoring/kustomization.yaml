@@ -4,3 +4,9 @@ resources:
   - namespace.yaml
   - prometheus.yaml
   - grafana.yaml
+
+configMapGenerator:
+- name: grafana-dashboard-json
+  namespace: monitoring
+  files:
+  - dashboard.json
