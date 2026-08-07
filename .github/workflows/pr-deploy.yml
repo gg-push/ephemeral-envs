@@ -79,7 +79,7 @@ jobs:
               patch: |-
                 - op: replace
                   path: /spec/rules/0/host
-                  value: pr-$PR_NUMBER.127.0.0.1.nip.io
+                  value: pr-$PR_NUMBER.local.127.0.0.1.nip.io
             - target:
                 kind: Deployment
                 name: devboard-app
@@ -112,5 +112,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '**Ephemeral Environment is live!** \n\n**URL:** http://pr-${{ github.event.pull_request.number }}.127.0.0.1.nip.io \n**Username:** admin \n**Password:** ${{ steps.deploy.outputs.password }}'
+              body: '**Ephemeral Environment is live!** \n\n**URL:** http://pr-${{ github.event.pull_request.number }}.local.127.0.0.1.nip.io \n**Username:** admin \n**Password:** ${{ steps.deploy.outputs.password }}'
             })
