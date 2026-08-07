@@ -103,6 +103,9 @@ jobs:
                 - op: replace
                   path: /spec/rules/0/host
                   value: pr-$PR_NUMBER.local.127.0.0.1.nip.io
+                - op: replace
+                  path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.middlewares
+                  value: pr-$PR_NUMBER-basic-auth@kubernetescrd
             - target:
                 kind: Deployment
                 name: devboard-app
