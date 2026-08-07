@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-seed
+  namespace: "pr-{{ args.pr_number }}"
+data:
+  # Mounted into docker-entrypoint-initdb.d, so this runs once when the
+  # database is first initialised. The app also creates the schema itself on
+  # boot, so this is really just demo data.
+  seed.sql: |
+    CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        done BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+    );
+
+    INSERT INTO tasks (title, done) VALUES
+    ('Migrate legacy user data to v2 schema', true),
+    ('Update Kubernetes ingress annotations for TLS', false),
+    ('Fix race condition in payment gateway webhook', false),
+    ('Deprecate old /v1/users endpoint', false),
+    ('Write post-mortem for yesterday''s database outage', true),
+    ('Implement scale-to-zero for ephemeral environments', false);
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            # Throwaway credentials for a throwaway database that is only
+            # reachable from inside its own namespace.
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: devboard
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "devboard"]
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: seed-script
+              mountPath: /docker-entrypoint-initdb.d/seed.sql
+              subPath: seed.sql
+      volumes:
+        # Preview databases are disposable by design; nothing here is worth
+        # keeping past the life of the pull request.
+        - name: pgdata
+          emptyDir: {}
+        - name: seed-script
+          configMap:
+            name: db-seed

@@ -1,14 +1,17 @@
 import os
-from datetime import datetime
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+import sqlalchemy
+from fastapi import Depends, FastAPI, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import sqlalchemy
 
-from database import engine, get_db, Base
+from database import Base, engine, get_db
 from models import Task
 
 # ── Environment Info ──────────────────────────────────────────────────────────
@@ -16,20 +19,47 @@ ENV_NAME = os.getenv("ENV_NAME", "local")
 PR_NUMBER = os.getenv("PR_NUMBER", "0")
 APP_VERSION = os.getenv("APP_VERSION", "dev")
 
-# Generate a unique hue per PR number so every environment has its own color
-pr_hue = (int(PR_NUMBER) * 47) % 360
+# How long to wait for Postgres on boot. The database pod frequently starts
+# after the app pod, and crash-looping until it appears makes the rollout look
+# broken when it is merely slow.
+DB_WAIT_SECONDS = int(os.getenv("DB_WAIT_SECONDS", "60"))
+
+# Generate a unique hue per PR number so every environment has its own color.
+# ENV_NAME is not always numeric (local runs, ad-hoc deploys), so fall back
+# rather than crashing the process at import time.
+try:
+    pr_hue = (int(PR_NUMBER) * 47) % 360
+except ValueError:
+    pr_hue = 210
+
+
+def wait_for_database(timeout: int = DB_WAIT_SECONDS) -> None:
+    """Block until the database accepts a connection, or give up after timeout."""
+    deadline = time.monotonic() + timeout
+    delay = 0.5
+    while True:
+        try:
+            with engine.connect() as conn:
+                conn.execute(sqlalchemy.text("SELECT 1"))
+            return
+        except Exception:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 5)
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    wait_for_database()
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     try:
         existing = db.query(Task).filter(Task.title.like("[System] Environment%")).first()
         if not existing:
             seed = Task(
-                title=f"[System] Environment {ENV_NAME} initialized — {datetime.utcnow().strftime('%b %d %Y %H:%M UTC')}",
+                title=f"[System] Environment {ENV_NAME} initialized — {datetime.now(timezone.utc).strftime('%b %d %Y %H:%M UTC')}",
                 done=False,
             )
             db.add(seed)
@@ -46,6 +76,17 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Start Prometheus metrics instrumentator
+Instrumentator().instrument(app).expose(app)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -76,11 +117,11 @@ def render_page(tasks: list[Task]) -> str:
         checked_class = "checked" if t.done else ""
         task_rows += f"""
         <li class="task-item {seed_class}">
-          <form method="post" action="/tasks/{t.id}/toggle" style="display:contents">
+          <form method="post" action="/api/tasks/{t.id}/toggle" style="display:contents">
             <button type="submit" class="check-btn {checked_class}">{checkmark}</button>
           </form>
           <span class="task-label {done_class}">{t.title}</span>
-          <form method="post" action="/tasks/{t.id}/delete" style="display:contents">
+          <form method="post" action="/api/tasks/{t.id}/delete" style="display:contents">
             <button type="submit" class="delete-btn" title="Delete">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -305,7 +346,7 @@ def render_page(tasks: list[Task]) -> str:
       <div class="section">
         <div class="section-header"><span class="section-title">New Task</span></div>
         <div class="section-body">
-          <form class="add-form" method="post" action="/tasks/create">
+          <form class="add-form" method="post" action="/api/tasks/create">
             <input class="add-input" name="title" type="text"
               placeholder="What needs to be done?" required autocomplete="off" />
             <button class="add-btn" type="submit">Add</button>
@@ -315,7 +356,7 @@ def render_page(tasks: list[Task]) -> str:
 
       <div class="section">
         <div class="section-header">
-          <span class="section-title">Tasks</span>
+          <span class="section-title">PR Preview</span>
           <span class="count-badge">{len(tasks)}</span>
         </div>
         <div class="section-body">{task_html}</div>
@@ -364,24 +405,39 @@ def index(db: Session = Depends(get_db)):
     return render_page(tasks)
 
 
-@app.get("/health")
+@app.get("/api/live")
+def live():
+    """Liveness: is the process itself healthy? Deliberately touches nothing."""
+    return {"status": "alive", "version": APP_VERSION}
+
+
+@app.get("/api/health")
 def health(db: Session = Depends(get_db)):
+    """Readiness: can this instance actually serve requests?
+
+    Returns 503 when the database is unreachable so that Kubernetes pulls the
+    pod out of the Service endpoints instead of routing traffic into errors.
+    """
     try:
         db.execute(sqlalchemy.text("SELECT 1"))
         db_status = "connected"
     except Exception:
         db_status = "error"
 
-    return {
-        "status": "ok",
+    payload = {
+        "status": "ok" if db_status == "connected" else "degraded",
         "env": ENV_NAME,
         "pr": PR_NUMBER,
         "db": db_status,
         "version": APP_VERSION,
     }
 
+    if db_status != "connected":
+        return JSONResponse(payload, status_code=503)
+    return payload
 
-@app.get("/db/info")
+
+@app.get("/api/db/info")
 def db_info(db: Session = Depends(get_db)):
     count = db.query(Task).count()
     return {
@@ -392,12 +448,12 @@ def db_info(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/tasks", response_model=list[TaskResponse])
+@app.get("/api/tasks", response_model=list[TaskResponse])
 def list_tasks(db: Session = Depends(get_db)):
     return db.query(Task).order_by(Task.created_at).all()
 
 
-@app.post("/tasks", response_model=TaskResponse, status_code=201)
+@app.post("/api/tasks", response_model=TaskResponse, status_code=201)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     task = Task(title=payload.title)
     db.add(task)
@@ -406,7 +462,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     return task
 
 
-@app.post("/tasks/create")
+@app.post("/api/tasks/create")
 def create_task_form(title: str = Form(...), db: Session = Depends(get_db)):
     task = Task(title=title)
     db.add(task)
@@ -414,7 +470,7 @@ def create_task_form(title: str = Form(...), db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
-@app.post("/tasks/{task_id}/toggle")
+@app.post("/api/tasks/{task_id}/toggle")
 def toggle_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
@@ -424,7 +480,7 @@ def toggle_task(task_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(url="/", status_code=303)
 
 
-@app.delete("/tasks/{task_id}", status_code=204)
+@app.delete("/api/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
@@ -433,7 +489,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-@app.post("/tasks/{task_id}/delete")
+@app.post("/api/tasks/{task_id}/delete")
 def delete_task_form(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if task:

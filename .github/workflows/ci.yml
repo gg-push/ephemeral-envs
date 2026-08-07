@@ -1,0 +1,137 @@
+name: CI
+
+# Runs entirely on GitHub-hosted runners. Nothing here touches the cluster.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Lint and test Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches app/Dockerfile.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest
+
+  manifests:
+    name: Render and validate manifests
+    runs-on: ubuntu-latest
+    env:
+      KUBECONFORM_VERSION: "0.6.7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kluctl
+        run: curl -s https://kluctl.io/install.sh | bash
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Render the preview target
+        run: |
+          set -euo pipefail
+          # --offline-kubernetes is what makes this possible without a cluster,
+          # which is the whole reason this job can run on a hosted runner.
+          kluctl render -t preview \
+            --offline-kubernetes \
+            --kubernetes-version 1.31 \
+            -a pr_number=999 \
+            -a image_tag=deadbeefcafe1234567890abcdef1234567890ab \
+            --print-all > /tmp/rendered.yaml
+
+          echo "::group::Rendered output"
+          cat /tmp/rendered.yaml
+          echo "::endgroup::"
+
+      - name: Validate rendered manifests
+        run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            -kubernetes-version 1.31.0 /tmp/rendered.yaml
+
+      - name: Assert templating produced the right values
+        run: |
+          set -euo pipefail
+          # A Jinja2 typo renders an empty string rather than failing, which
+          # would quietly produce a namespace called "pr-" shared by every
+          # environment. These assertions make that loud.
+          grep -q "name: pr-999" /tmp/rendered.yaml
+          grep -q "host: pr-999.local.127.0.0.1.nip.io" /tmp/rendered.yaml
+          grep -q "ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q "ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q 'value: deadbee' /tmp/rendered.yaml   # APP_VERSION, truncated
+
+          if grep -qE "namespace: (pr-)?$|\{\{|\}\}" /tmp/rendered.yaml; then
+            echo "::error::Found an unrendered template or an empty namespace"
+            exit 1
+          fi
+          echo "Templating looks correct."
+
+      - name: Validate the statically applied stacks
+        run: |
+          set -euo pipefail
+          FAILED=0
+          for dir in monitoring gitops; do
+            echo "::group::$dir"
+            if [ -f "$dir/kustomization.yaml" ]; then
+              kubectl kustomize "$dir" > /tmp/static.yaml || { FAILED=1; echo "::endgroup::"; continue; }
+            else
+              # A document separator between files is required, otherwise the
+              # last document of one file merges into the first of the next.
+              { for f in "$dir"/*.yaml; do echo "---"; cat "$f"; done; } > /tmp/static.yaml
+            fi
+            kubeconform -strict -summary -ignore-missing-schemas \
+              -kubernetes-version 1.31.0 /tmp/static.yaml || FAILED=1
+            echo "::endgroup::"
+          done
+          exit $FAILED
+
+  frontend:
+    name: Lint and build the frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        # frontend/ has no committed lockfile, so npm ci is not usable yet.
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

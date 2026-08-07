@@ -1,0 +1,81 @@
+# The whole preview-environment lifecycle, declared.
+#
+# ListGithubPullRequests polls the GitHub API and publishes the open pull
+# requests into its status. ObjectTemplate treats that list as a matrix and
+# renders one KluctlDeployment per entry.
+#
+# Teardown falls out of the same mechanism: when a PR closes it leaves the
+# list, the matrix input disappears, and the generated KluctlDeployment is
+# pruned. Nothing has to observe the "PR closed" event, so nothing breaks if
+# the machine happens to be asleep when it happens.
+
+apiVersion: templates.kluctl.io/v1alpha1
+kind: ListGithubPullRequests
+metadata:
+  name: open-pull-requests
+  namespace: ephemeral-envs-system
+spec:
+  interval: 1m
+  owner: gg-push
+  repo: ephemeral-envs
+  state: open
+  base: main
+  # Safeguard against accidentally spawning an environment per PR on a
+  # repository that has hundreds of them.
+  limit: 50
+  tokenRef:
+    secretName: github-credentials
+    key: token
+---
+apiVersion: templates.kluctl.io/v1alpha1
+kind: ObjectTemplate
+metadata:
+  name: preview-environments
+  namespace: ephemeral-envs-system
+spec:
+  serviceAccountName: preview-templater
+  # Without this, closing a pull request would leave its environment running.
+  prune: true
+  matrix:
+    - name: pr
+      object:
+        ref:
+          apiVersion: templates.kluctl.io/v1alpha1
+          kind: ListGithubPullRequests
+          name: open-pull-requests
+        jsonPath: status.pullRequests
+        expandLists: true
+  templates:
+    - object:
+        apiVersion: gitops.kluctl.io/v1beta1
+        kind: KluctlDeployment
+        metadata:
+          name: "pr-{{ matrix.pr.number }}"
+          namespace: ephemeral-envs-system
+        spec:
+          interval: 1m
+          # Redeploy periodically even when nothing changed, so manual edits to
+          # a preview environment are corrected rather than left to drift.
+          deployInterval: 5m
+          timeout: 5m
+          serviceAccountName: preview-deployer
+          source:
+            git:
+              url: https://github.com/gg-push/ephemeral-envs.git
+              # Deploy the pull request's own branch, so a PR that changes the
+              # manifests is previewed with those changes applied.
+              ref:
+                branch: "{{ matrix.pr.head.ref }}"
+          target: preview
+          prune: true
+          args:
+            pr_number: "{{ matrix.pr.number }}"
+            # The head SHA is an immutable tag, so "which commit is running in
+            # pr-42" always has an exact answer and a push always triggers a
+            # real change to this object.
+            image_tag: "{{ matrix.pr.head.sha }}"
+          credentials:
+            git:
+              - host: github.com
+                secretRef:
+                  name: github-credentials
