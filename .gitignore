@@ -6,9 +6,8 @@ __pycache__/
 .idea/
 .vscode/
 
-# Working notes and docs, deliberately untracked for now.
+# Personal working notes, deliberately untracked.
 production-concepts.md
-README.md
 plan.md
 
 # The self-hosted runner installs itself here and holds its credentials.
