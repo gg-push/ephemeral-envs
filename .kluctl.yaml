@@ -24,10 +24,13 @@ args:
   - name: image_tag
     default: latest
 
-  # Registry the cluster pulls application images from.
+  # Registry the cluster pulls application images from. Public GHCR packages,
+  # so no imagePullSecret is needed in any preview namespace.
   - name: registry
-    default: k3d-registry.localhost:5000
+    default: ghcr.io/gg-push
 
-  # Wildcard DNS suffix used to build the environment URL.
+  # Wildcard DNS suffix used to build the environment URL. This is the only
+  # value that is specific to running on a laptop — point it at a real wildcard
+  # domain and the same project deploys to a real cluster unchanged.
   - name: base_domain
     default: local.127.0.0.1.nip.io

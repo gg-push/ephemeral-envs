@@ -1,10 +1,10 @@
 name: Build Preview Images
 
-# This workflow does NOT deploy anything and holds no cluster credentials.
-# It builds images, pushes them to the local registry, then waits for the
-# kluctl controller to converge and reports the result on the PR.
+# Builds and publishes images. That is all.
 #
-# Deployment and teardown are owned entirely by the in-cluster controllers.
+# Nothing here deploys, and nothing here needs a machine of yours — this runs
+# on GitHub-hosted runners. Deployment, teardown and the PR comment are all
+# owned by controllers inside the cluster.
 
 on:
   pull_request:
@@ -12,148 +12,50 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  packages: write
 
 concurrency:
   group: preview-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-env:
-  # Push and pull addresses differ, deliberately.
-  #
-  # Docker only exempts the literal host `localhost` and IPs in 127.0.0.0/8
-  # from requiring TLS — it does not resolve `k3d-registry.localhost` to
-  # discover that it is loopback, so pushing to that name fails with
-  # "server gave HTTP response to HTTPS client". Pushing via 127.0.0.1
-  # avoids that with no change to the Docker daemon config.
-  #
-  # It is the same registry either way: images are stored by repository name,
-  # and the cluster pulls them as k3d-registry.localhost:5000/... (the name
-  # its containerd mirror is configured for). See the `registry` arg default
-  # in .kluctl.yaml.
-  PUSH_REGISTRY: 127.0.0.1:5000
-  BASE_DOMAIN: local.127.0.0.1.nip.io
-
 jobs:
   build:
-    # The runner still executes on a real machine, so fork PRs stay out even
-    # though it can no longer reach the cluster API.
+    # A fork's GITHUB_TOKEN is read-only, so it could not push anyway. Being
+    # explicit keeps the failure mode obvious rather than a confusing 403, and
+    # mirrors the `head` filter on ListGithubPullRequests which stops fork
+    # branches becoming environments.
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # The tag is the head SHA because that is exactly what the ObjectTemplate
-      # passes as image_tag. If these two ever disagree the environment will
-      # sit in ImagePullBackOff, which is a loud and obvious failure.
+      # Required for cache-to: type=gha. The default buildx driver is `docker`,
+      # which cannot export a cache; this switches to `docker-container`.
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tagged with the head SHA because that is exactly what the ObjectTemplate
+      # passes as image_tag. If the two ever disagree the environment sits in
+      # ImagePullBackOff, which is loud and obvious.
       - name: Build and push backend
         uses: docker/build-push-action@v5
         with:
           context: ./app
           push: true
-          tags: ${{ env.PUSH_REGISTRY }}/ephemeral-envs-backend:${{ github.event.pull_request.head.sha }}
+          tags: ghcr.io/${{ github.repository_owner }}/ephemeral-envs-backend:${{ github.event.pull_request.head.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.PUSH_REGISTRY }}/ephemeral-envs-frontend:${{ github.event.pull_request.head.sha }}
-
-      - name: Wait for the environment to converge
-        id: wait
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          URL="http://pr-$PR_NUMBER.$BASE_DOMAIN/api/health"
-          EXPECTED="${PR_SHA:0:7}"
-
-          echo "Waiting for $URL to report version $EXPECTED"
-
-          # The controller polls GitHub on an interval, so there is a delay
-          # between this push and the environment existing. That is normal for
-          # pull-based delivery, not a failure.
-          for attempt in $(seq 1 60); do
-            BODY="$(curl -fsS --max-time 5 "$URL" 2>/dev/null || true)"
-            if [ -n "$BODY" ]; then
-              # Checking the version proves THIS commit is live, rather than a
-              # previous one that happened to still be serving traffic.
-              if echo "$BODY" | grep -q "\"version\":\"$EXPECTED\""; then
-                echo "$BODY"
-                echo "Environment is live on $EXPECTED"
-                exit 0
-              fi
-              echo "Attempt $attempt/60: reachable, but not yet on $EXPECTED"
-            else
-              echo "Attempt $attempt/60: not reachable yet"
-            fi
-            sleep 10
-          done
-
-          echo "::error::Environment did not converge within 10 minutes"
-          echo "Check the controller with: kluctl gitops logs -n ephemeral-envs-system --name pr-$PR_NUMBER"
-          exit 1
-
-      - name: Comment on PR
-        if: always() && steps.wait.outcome != 'skipped'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const marker = '<!-- ephemeral-env -->';
-            const pr = context.payload.pull_request;
-            const ns = `pr-${pr.number}`;
-            const sha = pr.head.sha.substring(0, 7);
-            const ok = '${{ steps.wait.outcome }}' === 'success';
-
-            const body = ok
-              ? [
-                  marker,
-                  '### Preview environment is live',
-                  '',
-                  '| | |',
-                  '|---|---|',
-                  `| **URL** | http://${ns}.local.127.0.0.1.nip.io |`,
-                  `| **Commit** | \`${sha}\` |`,
-                  `| **Namespace** | \`${ns}\` |`,
-                  '',
-                  'Deployed by the kluctl controller. Closing this PR removes it automatically.',
-                  '',
-                  `[Metrics](http://grafana.local.127.0.0.1.nip.io/?var-namespace=${ns})`,
-                ].join('\n')
-              : [
-                  marker,
-                  '### Preview environment did not come up',
-                  '',
-                  `Images for \`${sha}\` were pushed, but \`${ns}\` never reported healthy.`,
-                  '',
-                  '```',
-                  `kluctl gitops logs -n ephemeral-envs-system --name ${ns}`,
-                  '```',
-                ].join('\n');
-
-            // One sticky comment, updated in place, rather than a new one on
-            // every push.
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              issue_number: pr.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: pr.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body,
-              });
-            }
+          tags: ghcr.io/${{ github.repository_owner }}/ephemeral-envs-frontend:${{ github.event.pull_request.head.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
