@@ -28,8 +28,12 @@ function App() {
 
   // Every environment gets its own hue, so which preview you are looking at is
   // obvious at a glance rather than something you read out of the URL bar.
+  //
+  // 137 is the golden angle: it spreads consecutive values as far apart on the
+  // colour wheel as possible. Pull requests are numbered consecutively, so a
+  // smaller step makes PR 9 and PR 10 nearly the same colour.
   const prNumber = health?.pr ?? '0'
-  const hue = (Number.parseInt(prNumber, 10) * 47) % 360
+  const hue = (Number.parseInt(prNumber, 10) * 137) % 360
 
   useEffect(() => {
     document.documentElement.style.setProperty('--env-h', Number.isNaN(hue) ? 210 : hue)

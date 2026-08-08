@@ -15,7 +15,7 @@ def _reload_main(monkeypatch, **env):
 
 def test_hue_is_derived_from_the_pr_number(monkeypatch):
     main = _reload_main(monkeypatch, PR_NUMBER="3")
-    assert main.pr_hue == (3 * 47) % 360
+    assert main.pr_hue == (3 * 137) % 360
 
 
 def test_non_numeric_pr_number_does_not_crash_the_process(monkeypatch):

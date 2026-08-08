@@ -28,7 +28,12 @@ DB_WAIT_SECONDS = int(os.getenv("DB_WAIT_SECONDS", "60"))
 # ENV_NAME is not always numeric (local runs, ad-hoc deploys), so fall back
 # rather than crashing the process at import time.
 try:
-    pr_hue = (int(PR_NUMBER) * 47) % 360
+    # 137 is the golden angle, which spreads consecutive values as far apart on
+    # the colour wheel as possible. It matters because pull requests are
+    # numbered consecutively: with a smaller step, PR 9 and PR 10 come out
+    # nearly the same colour and two environments side by side are
+    # indistinguishable.
+    pr_hue = (int(PR_NUMBER) * 137) % 360
 except ValueError:
     pr_hue = 210
 
