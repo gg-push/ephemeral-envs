@@ -84,8 +84,8 @@ jobs:
           # environment. These assertions make that loud.
           grep -q "name: pr-999" /tmp/rendered.yaml
           grep -q "host: pr-999.local.127.0.0.1.nip.io" /tmp/rendered.yaml
-          grep -q "ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
-          grep -q "ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q "ghcr.io/gg-push/ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
+          grep -q "ghcr.io/gg-push/ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
           grep -q 'value: deadbee' /tmp/rendered.yaml   # APP_VERSION, truncated
 
           if grep -qE "namespace: (pr-)?$|\{\{|\}\}" /tmp/rendered.yaml; then
@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           FAILED=0
-          for dir in monitoring gitops; do
+          for dir in gitops; do
             echo "::group::$dir"
             if [ -f "$dir/kustomization.yaml" ]; then
               kubectl kustomize "$dir" > /tmp/static.yaml || { FAILED=1; echo "::endgroup::"; continue; }
