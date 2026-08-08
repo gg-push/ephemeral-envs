@@ -17,7 +17,7 @@ deployments:
   - path: deploy/ingress
 
 # Applied to every object kluctl deploys. These are what make an environment
-# identifiable from kubectl and Grafana without having to parse the namespace
+# identifiable from kubectl and k9s without having to parse the namespace
 # name.
 commonLabels:
   app.kubernetes.io/managed-by: kluctl

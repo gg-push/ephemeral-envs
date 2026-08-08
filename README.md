@@ -124,10 +124,22 @@ kubectl apply -f gitops/preview-generator.yaml
 
 Open a pull request. An environment appears within a minute or two.
 
-### 5. Optional
+### 5. Looking at environments
+
+Nothing needs installing in the cluster for this. k3s already ships
+metrics-server, so per-namespace resource usage works out of the box:
 
 ```bash
-kubectl apply -k monitoring   # Prometheus + Grafana
+kubectl top pod -n pr-5
+kubectl logs -n pr-5 -l app=devboard -f
+kubectl get events -n pr-5 --sort-by=.lastTimestamp
+```
+
+For an interactive view, [k9s](https://k9scli.io) is a single binary that runs
+on your machine and adds nothing to the cluster:
+
+```bash
+k9s -n pr-5     # l logs · d describe · s shell · y yaml · :ns switch namespace
 ```
 
 ---
@@ -166,7 +178,6 @@ gitops/
   preview-generator.yaml     The entire PR lifecycle, declared
 app/                         FastAPI source + tests
 frontend/                    React source
-monitoring/                  Prometheus + Grafana
 .github/workflows/
   ci.yml                     Lint, test, render, validate — hosted runners
   pr-preview.yml             Build and push images — self-hosted
@@ -210,7 +221,6 @@ CI additionally renders the project offline and asserts the templated values. Th
 - **CI holds no cluster credentials.** Delivery is pull-based; CI only builds and pushes images.
 - **Fork branches never become environments.** `ListGithubPullRequests` filters on `head: gg-push:.*`, so only branches in this repository are deployed. This is the guard that matters if the repo is public — without it, anyone could open a PR and have their branch run in the cluster.
 - **The deployer ServiceAccount is scoped** to the resource types a preview environment is made of, not cluster-admin.
-- Grafana runs with anonymous access for local convenience. Do not expose it.
 
 ## Running it on a real cluster
 
@@ -221,8 +231,7 @@ Three of the gaps below stop being optional at that point, which is really what 
 - **TLS** — cert-manager with a DNS-01 wildcard certificate
 - **Auth** — the environments are on the internet now
 - **TTL** — idle environments cost money once you are paying for the node
-
-`monitoring/grafana.yaml` also hardcodes its hostname and would need the same treatment.
+- **Retained metrics** — `kubectl top` and k9s answer "what is happening now", which is all a dev cluster needs. A server wants history, and that means an actual metrics stack (`kube-prometheus-stack`, most likely)
 
 ---
 
@@ -234,7 +243,7 @@ Deliberately out of scope for now — see `plan.md`.
 |---|---|
 | No Basic Auth on environments | A generated password cannot be committed to Git; every fix adds a component. Everything is on `127.0.0.1` and the repo is private. |
 | No TTL | Closed PRs are cleaned up. A PR left open for a month keeps its environment. |
-| Only previews are under GitOps | `monitoring/` is still applied by hand. |
+| No retained metrics | `kubectl top` and k9s show current state only. Fine for a dev cluster; a server would want a real metrics stack. |
 
 ---
 
