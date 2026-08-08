@@ -1,184 +1,207 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+
+const Check = () => (
+  <svg width="11" height="11" viewBox="0 0 10 10" aria-hidden="true">
+    <polyline
+      points="1.5,5.2 3.9,7.6 8.5,2.6"
+      fill="none"
+      stroke="hsl(225 20% 8%)"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
+const Cross = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+    <path
+      d="M2 2l8 8M10 2l-8 8"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    />
+  </svg>
+)
 
 function App() {
   const [tasks, setTasks] = useState([])
   const [health, setHealth] = useState(null)
-  const [newTask, setNewTask] = useState('')
+  const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
 
-  // Determine dynamic hue based on PR number for environment color isolation
-  const prNumber = health?.pr || '0'
-  const envHue = (parseInt(prNumber) * 47) % 360
-
-  useEffect(() => {
-    // Set CSS variable for dynamic theming
-    document.documentElement.style.setProperty('--env-hue', envHue)
-  }, [envHue])
+  // Every environment gets its own hue, so which preview you are looking at is
+  // obvious at a glance rather than something you read out of the URL bar.
+  const prNumber = health?.pr ?? '0'
+  const hue = (Number.parseInt(prNumber, 10) * 47) % 360
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    document.documentElement.style.setProperty('--env-h', Number.isNaN(hue) ? 210 : hue)
+  }, [hue])
 
-  const fetchData = async () => {
+  const load = useCallback(async () => {
     try {
       const [tasksRes, healthRes] = await Promise.all([
         fetch('/api/tasks'),
-        fetch('/api/health')
+        fetch('/api/health'),
       ])
-      const tasksData = await tasksRes.json()
-      const healthData = await healthRes.json()
-      
-      setTasks(tasksData)
-      setHealth(healthData)
-      setLoading(false)
-    } catch (err) {
-      console.error("Failed to fetch API:", err)
+      // /api/health answers 503 when the database is unreachable, and still
+      // returns a useful body, so it is read either way.
+      if (!tasksRes.ok && !healthRes.ok) throw new Error('backend unreachable')
+
+      setHealth(await healthRes.json())
+      setTasks(tasksRes.ok ? await tasksRes.json() : [])
+      setFailed(false)
+    } catch {
+      setFailed(true)
+    } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const handleAdd = async (e) => {
-    e.preventDefault()
-    if (!newTask.trim()) return
+  useEffect(() => { load() }, [load])
 
+  const add = async (event) => {
+    event.preventDefault()
+    const title = draft.trim()
+    if (!title) return
+
+    setDraft('')
     const res = await fetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTask })
+      body: JSON.stringify({ title }),
     })
-    
-    if (res.ok) {
-      const task = await res.json()
-      setTasks([...tasks, task])
-      setNewTask('')
-    }
+    if (!res.ok) return
+    const created = await res.json()
+    setTasks((prev) => [...prev, created])
   }
 
-  const handleToggle = async (id) => {
-    // Optimistic UI update
-    setTasks(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t))
+  const toggle = async (id) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
     await fetch(`/api/tasks/${id}/toggle`, { method: 'POST' })
-    fetchData() // Sync with server
   }
 
-  const handleDelete = async (id) => {
-    setTasks(tasks.filter(t => t.id !== id))
-    await fetch(`/api/tasks/${id}/delete`, { method: 'POST' })
+  const remove = async (id) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
   }
 
-  if (loading) {
-    return (
-      <div className="window" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
-        <div className="loader"></div>
-      </div>
-    )
-  }
-
-  return (
+  const shell = (body) => (
     <div className="window">
       <div className="titlebar">
         <div className="traffic">
-          <div className="dot dot-red"></div>
-          <div className="dot dot-yellow"></div>
-          <div className="dot dot-green"></div>
+          <span className="dot dot-red" />
+          <span className="dot dot-yellow" />
+          <span className="dot dot-green" />
         </div>
-        <div className="titlebar-center">DevBoard — {health?.env || 'Local'} (React)</div>
+        <div className="titlebar-title">devboard</div>
       </div>
-
-      <div className="content">
-        <div className="env-pill">
-          <div className="env-dot"></div>
-          <span className="env-pill-text">PR #{health?.pr || '0'} · Live Preview</span>
-        </div>
-
-        <div className="section">
-          <div className="section-header">
-            <span className="section-title">New Task</span>
-          </div>
-          <div className="section-body">
-            <form className="add-form" onSubmit={handleAdd}>
-              <input 
-                className="add-input" 
-                value={newTask} 
-                onChange={e => setNewTask(e.target.value)}
-                placeholder="What needs to be done?" 
-                required 
-              />
-              <button className="add-btn" type="submit">Add</button>
-            </form>
-          </div>
-        </div>
-
-        <div className="section">
-          <div className="section-header">
-            <span className="section-title">PR Preview</span>
-            <span className="count-badge">{tasks.length}</span>
-          </div>
-          <div className="section-body">
-            {tasks.length === 0 ? (
-              <div className="empty-state">No tasks yet</div>
-            ) : (
-              <ul className="task-list">
-                {tasks.map(t => (
-                  <li key={t.id} className={`task-item ${t.title.startsWith('[System]') ? 'seed-task' : ''}`}>
-                    <button 
-                      className={`check-btn ${t.done ? 'checked' : ''}`}
-                      onClick={() => handleToggle(t.id)}
-                    >
-                      {t.done && (
-                        <svg width="10" height="10" viewBox="0 0 10 10">
-                          <polyline points="1.5,5 4,7.5 8.5,2.5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </button>
-                    <span className={`task-label ${t.done ? 'done' : ''}`}>{t.title}</span>
-                    <button className="delete-btn" onClick={() => handleDelete(t.id)}>
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        <div className="section">
-          <div className="section-header">
-            <span className="section-title">Environment Info</span>
-          </div>
-          <div className="section-body">
-            <div className="meta-grid">
-              <div className="meta-item">
-                <div className="meta-label">Environment</div>
-                <div className="meta-value">{health?.env}</div>
-              </div>
-              <div className="meta-item">
-                <div className="meta-label">Pull Request</div>
-                <div className="meta-value">#{health?.pr}</div>
-              </div>
-              <div className="meta-item">
-                <div className="meta-label">Database Status</div>
-                <div className="meta-value" style={{ color: health?.db === 'connected' ? '#28c840' : '#ff5f57' }}>
-                  {health?.db}
-                </div>
-              </div>
-              <div className="meta-item">
-                <div className="meta-label">Frontend</div>
-                <div className="meta-value">React + Vite</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="window-footer">
-        <span className="footer-text">API v{health?.version || '1.0'}</span>
-        <span className="footer-text" style={{ color: 'var(--env-color)', fontWeight: 600 }}>Multi-Container Architecture Active</span>
-      </div>
+      {body}
     </div>
+  )
+
+  if (loading) {
+    return shell(
+      <div className="centred">
+        <div className="spinner" />
+      </div>,
+    )
+  }
+
+  if (failed) {
+    return shell(
+      <div className="centred">
+        <div className="fail-title">Backend unreachable</div>
+        <p className="fail-note">
+          The frontend is up but <code>/api</code> did not answer. The environment is
+          probably still rolling out.
+        </p>
+      </div>,
+    )
+  }
+
+  const dbOk = health?.db === 'connected'
+  const done = tasks.filter((t) => t.done).length
+
+  return shell(
+    <>
+      <div className="content">
+        <section className="env">
+          <div className="env-label">
+            <span className="env-beacon" />
+            Preview environment
+          </div>
+          <div className="env-name">{health?.env ?? 'local'}</div>
+          <div className="env-facts">
+            <span className="fact">
+              <span className={`status-dot${dbOk ? '' : ' is-bad'}`} />
+              {dbOk ? 'own database' : 'database unreachable'}
+            </span>
+            <span className="fact">commit {health?.version ?? 'dev'}</span>
+          </div>
+        </section>
+
+        <form className="compose" onSubmit={add}>
+          <input
+            className="input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="What needs doing?"
+            aria-label="New task"
+          />
+          <button className="btn" type="submit" disabled={!draft.trim()}>
+            Add
+          </button>
+        </form>
+
+        <section className="panel">
+          <header className="panel-head">
+            <span className="panel-title">Tasks</span>
+            <span className="badge">{done}/{tasks.length}</span>
+          </header>
+
+          {tasks.length === 0 ? (
+            <div className="empty">Nothing here yet</div>
+          ) : (
+            <ul className="tasks">
+              {tasks.map((task) => (
+                <li
+                  key={task.id}
+                  className={[
+                    'task',
+                    task.done ? 'is-done' : '',
+                    task.title.startsWith('[System]') ? 'is-seed' : '',
+                  ].join(' ').trim()}
+                >
+                  <button
+                    className={`check${task.done ? ' is-done' : ''}`}
+                    onClick={() => toggle(task.id)}
+                    aria-label={task.done ? 'Mark as not done' : 'Mark as done'}
+                  >
+                    {task.done && <Check />}
+                  </button>
+                  <span className="task-text">{task.title}</span>
+                  <button
+                    className="remove"
+                    onClick={() => remove(task.id)}
+                    aria-label="Delete task"
+                  >
+                    <Cross />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <footer className="footer">
+        <span>Isolated Postgres · torn down with the pull request</span>
+        <a href="/api/health">health</a>
+      </footer>
+    </>,
   )
 }
 
