@@ -53,7 +53,21 @@ spec:
         jsonPath: status.pullRequests
         expandLists: true
   templates:
-    - object:
+    # Written as a raw string rather than a structured object so it can be
+    # wrapped in a conditional: an environment exists only while its pull
+    # request is BOTH open and recently active.
+    #
+    # Idle expiry is measured from updated_at, not created_at, so a PR that is
+    # actively being worked on never expires mid-review. Push to an expired PR
+    # and the condition flips back — the loop simply rebuilds the environment,
+    # with no "restore" path to write.
+    #
+    # Careful: updated_at is also bumped by comments, and the GithubComment
+    # below posts one. That is harmless only because its body depends purely on
+    # the commit. Putting a live countdown in it would repost continuously,
+    # refresh updated_at forever and defeat this entirely.
+    - raw: |
+        {% if time.parse_iso(matrix.pr.updated_at) > time.utcnow() - time.hour * 48 %}
         apiVersion: gitops.kluctl.io/v1beta1
         kind: KluctlDeployment
         metadata:
@@ -93,6 +107,7 @@ spec:
               - host: github.com
                 secretRef:
                   name: github-credentials
+        {% endif %}
 
     # The PR comment is posted from inside the cluster rather than from CI.
     #
@@ -137,3 +152,6 @@ spec:
                 Managed by the kluctl controller for as long as this pull
                 request is open. Allow a minute or so after each push for the
                 new commit to roll out.
+
+                Environments for pull requests with no activity for 48 hours
+                are removed. Push again and one is rebuilt automatically.
