@@ -33,6 +33,14 @@ rules:
   - apiGroups: ["gitops.kluctl.io"]
     resources: ["kluctldeployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Expiry markers for pull requests that have gone idle.
+  #
+  # Every kind the ObjectTemplate can render needs a rule here. There is no
+  # partial failure: one missing permission fails the whole reconcile, so a
+  # single unlisted kind stops every environment being managed.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
