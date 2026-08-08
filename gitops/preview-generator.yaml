@@ -74,7 +74,14 @@ spec:
               ref:
                 branch: "{{ matrix.pr.head.ref }}"
           target: preview
+          # prune removes orphaned objects during a normal reconcile — objects
+          # that used to be in the deployment and no longer are.
           prune: true
+          # delete is what makes teardown work, and the two are easy to
+          # confuse. Without it, closing a pull request prunes this
+          # KluctlDeployment but leaves everything it deployed running, so the
+          # namespace leaks forever. Verified the hard way.
+          delete: true
           args:
             pr_number: "{{ matrix.pr.number }}"
             # The head SHA is an immutable tag, so "which commit is running in
