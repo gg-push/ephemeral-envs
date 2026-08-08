@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           FAILED=0
-          for dir in monitoring gitops; do
+          for dir in gitops; do
             echo "::group::$dir"
             if [ -f "$dir/kustomization.yaml" ]; then
               kubectl kustomize "$dir" > /tmp/static.yaml || { FAILED=1; echo "::endgroup::"; continue; }

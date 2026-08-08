@@ -16,13 +16,13 @@ inside the cluster asks GitHub what is open and converges on the answer, so
 there is no event that can be missed.
 
 ```
-GitHub Actions (self-hosted)          In-cluster controllers
+GitHub Actions (hosted runners)       In-cluster controllers
       │                                        │
       │ builds images only                     │ every 1 minute:
       │ NO cluster credentials                 │
       ▼                                        ▼
-Local registry  ◄─── kubelet pulls ───  ListGithubPullRequests
-(k3d-registry:5000)                     "which PRs are open?"
+GHCR  ◄──────── kubelet pulls ────────  ListGithubPullRequests
+(public packages)                       "which PRs are open?"
                                                │
                                                ▼
                                         ObjectTemplate
@@ -73,29 +73,26 @@ No cleanup code exists. Teardown is a property of the system.
 - Also provides the `Middleware` CRD used for per-environment Basic Auth.
 - K3d allows exposing port 80/443 directly to localhost.
 
-### 4. Container Images — Built Locally, No Registry
+### 4. Container Images — GHCR
 
-- Originally planned to push to GHCR, but the runner and the cluster are on the
-  same machine, so a registry round-trip buys nothing.
-- GitHub Actions builds the image and `k3d image import` loads it straight into
-  the cluster nodes.
-- Images are tagged `ephemeral-envs-{backend,frontend}:pr-<number>` and removed
-  by the cleanup workflow when the PR closes.
+- Built and pushed from GitHub-hosted runners, tagged with the PR head SHA so
+  "which commit is running in pr-42" always has an exact answer.
+- The packages are public, so preview namespaces pull with no `imagePullSecret`
+  and no registry token has to live in Git.
 
-### 5. Self-Hosted GitHub Actions Runner (Critical)
+### 5. No Self-Hosted Runner
 
-- GitHub's cloud runners CANNOT reach your local K3d cluster.
-- You run a small agent on your laptop.
-- It listens for GitHub Actions jobs and executes them locally.
-- Has full access to your K3d cluster.
-- Setup: Download from GitHub repo Settings → Actions → Runners.
+- Pull-based delivery means nothing in CI needs to reach the cluster, so there
+  is no runner on any machine of yours.
+- This is what makes the repository safe to make public: a public repo plus a
+  self-hosted runner lets anyone execute code on that machine.
 
 ### 6. Sample Web App (To Deploy)
 
 - Python FastAPI application.
 - Minimal macOS inspired UI, task list, and Swagger docs.
 - Has a `Dockerfile`.
-- Has a Kustomize configuration for Kubernetes deployment.
+- Deployed by the kluctl project in `deploy/`.
 
 ### 7. kluctl (replaced Kustomize overlays)
 
@@ -113,12 +110,12 @@ No cleanup code exists. Teardown is a property of the system.
 - **template-controller** — `ListGithubPullRequests` + `ObjectTemplate` generate
   one `KluctlDeployment` per open PR and prune it when the PR closes.
 
-### 9. Local container registry
+### 9. Looking at environments
 
-- Pull-based delivery means the cluster fetches its own images, so
-  `k3d image import` is no longer sufficient.
-- A k3d-managed registry keeps everything local and fast while still being a
-  real registry the kubelet can pull from.
+- No metrics stack. k3s already ships metrics-server, so `kubectl top pod -n
+  pr-42` works out of the box.
+- k9s is a single binary on your machine for pods, logs, events and exec, and
+  adds nothing to the cluster.
 
 ---
 
@@ -179,11 +176,6 @@ No cleanup code exists. Teardown is a property of the system.
 - [x] Update Traefik Ingress to route `/api/*` to Python backend and `/*` to Frontend
 - [x] Configure frontend to dynamically point to the correct backend API URL
 
-### Phase 8: Ephemeral Observability Dashboard
-- [x] Deploy global Grafana/Prometheus stack to the cluster
-- [x] Automatically generate and inject PR-specific metrics dashboard URL into GitHub comment
-- [x] Configure dashboards to track CPU, memory, and API latency for the specific `pr-*` namespace
-
 ### Phase 9: Central Developer Portal — built, then removed
 - [x] Build a lightweight "Control Panel" web app deployed in the `default` namespace
 - [x] Configure app to read Kubernetes API and list all active `pr-*` namespaces
@@ -242,8 +234,6 @@ templating and a CLI that drives the identical project.
       in-cluster, or an operator. Decide which before rebuilding it.
 - [ ] TTL for pull requests that stay open for weeks. Closed PRs are handled;
       long-lived ones currently keep their environment forever.
-- [ ] Bring `monitoring/` under GitOps too, so the entire cluster state lives
-      in Git.
 
 ### Phase 13: Later
 
@@ -265,8 +255,8 @@ templating and a CLI that drives the identical project.
 | ---------------------------- | ------ |
 | K3s on laptop                | $0     |
 | nip.io DNS                   | $0     |
-| GHCR (container registry)    | $0     |
-| GitHub Actions (self-hosted) | $0     |
+| GHCR (public packages)       | $0     |
+| GitHub Actions (hosted)      | $0     |
 | GitHub repo                  | $0     |
 | **Total**                    | **$0** |
 
@@ -284,7 +274,7 @@ templating and a CLI that drives the identical project.
 > continuously reconciles running environments against the set of open PRs, so teardown is a
 > property of the system rather than a webhook that can be missed, and CI holds no cluster
 > credentials at all. Evaluated ArgoCD and Flux against kluctl before choosing.
-> K3d, kluctl, Traefik, Prometheus/Grafana, GitHub Actions."
+> K3d, kluctl, Traefik, GitHub Actions."
 
 The second sentence is the one that matters. "Reconciliation instead of an event
 handler" and "CI holds no cluster credentials" are the two claims that separate
