@@ -67,7 +67,11 @@ spec:
     # the commit. Putting a live countdown in it would repost continuously,
     # refresh updated_at forever and defeat this entirely.
     - raw: |
-        {% if time.parse_iso(matrix.pr.updated_at) > time.utcnow() - time.hour * 48 %}
+        {# GitHub returns "2026-08-08T08:57:18Z". The trailing Z makes parse_iso
+           return an offset-aware datetime, which cannot be compared against
+           the offset-naive one from utcnow(). Both are UTC, so dropping the Z
+           makes them comparable without changing the meaning. #}
+        {% if time.parse_iso(matrix.pr.updated_at[:-1]) > time.utcnow() - time.hour * 48 %}
         apiVersion: gitops.kluctl.io/v1beta1
         kind: KluctlDeployment
         metadata:
@@ -107,6 +111,23 @@ spec:
               - host: github.com
                 secretRef:
                   name: github-credentials
+        {% else %}
+        {# The template must render a valid object. Rendering nothing fails the
+           whole reconcile with `no matches for kind ""`, which would freeze
+           every environment, not just this one. So an expired pull request
+           renders a marker instead: the KluctlDeployment stops being one of
+           this entry's rendered objects, prune removes it, and delete:true
+           tears the namespace down. The marker doubles as a record of which
+           environments expired and why. #}
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: "pr-{{ matrix.pr.number }}-expired"
+          namespace: ephemeral-envs-system
+        data:
+          reason: idle
+          lastActivity: "{{ matrix.pr.updated_at }}"
+          branch: "{{ matrix.pr.head.ref }}"
         {% endif %}
 
     # The PR comment is posted from inside the cluster rather than from CI.
