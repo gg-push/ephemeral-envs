@@ -2,8 +2,7 @@
  *
  * The accent hue is derived from the PR number at runtime, so every preview
  * environment is a visibly different colour. That is the point of the design:
- * you should never have to read the URL to know which environment you are
- * looking at.
+ * you should never have to read the URL to know which environment you are in.
  *
  * No webfont. The app is served from an isolated namespace with no reason to
  * reach the public internet, and a system stack renders instantly. */
@@ -14,14 +13,10 @@
   --accent: hsl(var(--env-h) 80% 62%);
   --accent-dim: hsl(var(--env-h) 70% 55%);
   --accent-wash: hsl(var(--env-h) 80% 62% / 0.12);
-  --accent-edge: hsl(var(--env-h) 80% 62% / 0.32);
 
   --bg: hsl(225 12% 7%);
-  --bg-glow: hsl(var(--env-h) 60% 50% / 0.10);
   --surface: hsl(225 11% 11%);
-  --surface-2: hsl(225 10% 14%);
-  --line: hsl(225 9% 20%);
-  --line-soft: hsl(225 9% 17%);
+  --line: hsl(225 9% 19%);
 
   --fg: hsl(220 15% 94%);
   --fg-muted: hsl(220 9% 62%);
@@ -32,8 +27,6 @@
 
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-
-  --radius: 14px;
 }
 
 *,
@@ -47,95 +40,30 @@
 body {
   font-family: var(--sans);
   background: var(--bg);
-  /* A wash of the environment colour bleeding in from the top, so the page
-     itself is tinted per PR, not just the accents. */
-  background-image: radial-gradient(70rem 32rem at 50% -14rem, var(--bg-glow), transparent 70%);
+  /* The environment colour bleeding in from the top tints the whole page, not
+     just the accents. */
+  background-image: radial-gradient(60rem 26rem at 50% -12rem, hsl(var(--env-h) 60% 50% / 0.13), transparent 70%);
   background-attachment: fixed;
   color: var(--fg);
   min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: clamp(16px, 6vh, 64px) 16px 64px;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
 }
 
-/* ── Window ─────────────────────────────────────────────────────────────── */
-
-.window {
-  width: 100%;
-  max-width: 560px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow:
-    0 1px 0 hsl(0 0% 100% / 0.04) inset,
-    0 24px 60px -20px hsl(0 0% 0% / 0.7);
-  animation: rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+.page {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: clamp(40px, 9vh, 88px) 20px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes rise {
-  from { opacity: 0; transform: translateY(12px) scale(0.99); }
+  from { opacity: 0; transform: translateY(10px); }
 }
 
-.titlebar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--line-soft);
-  user-select: none;
-}
-
-.traffic { display: flex; gap: 7px; }
-.dot { width: 11px; height: 11px; border-radius: 50%; }
-.dot-red { background: #ff5f57; }
-.dot-yellow { background: #febc2e; }
-.dot-green { background: #28c840; }
-
-.titlebar-title {
-  flex: 1;
-  text-align: center;
-  margin-right: 47px; /* optically centre against the traffic lights */
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--fg-muted);
-}
-
-.content {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* ── Environment banner ─────────────────────────────────────────────────── */
-
-.env {
-  position: relative;
-  overflow: hidden;
-  padding: 16px 18px;
-  border-radius: 11px;
-  background: var(--accent-wash);
-  border: 1px solid var(--accent-edge);
-}
-
-.env::after {
-  /* A soft bloom in the corner, purely so the accent reads as light rather
-     than a flat fill. */
-  content: "";
-  position: absolute;
-  inset: -40% -30% auto auto;
-  width: 16rem;
-  height: 16rem;
-  background: radial-gradient(circle, var(--accent) 0%, transparent 65%);
-  opacity: 0.18;
-  pointer-events: none;
-}
+/* ── Environment header ─────────────────────────────────────────────────── */
 
 .env-label {
   display: flex;
@@ -143,7 +71,7 @@ body {
   gap: 7px;
   font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--accent);
 }
@@ -157,25 +85,24 @@ body {
 }
 
 @keyframes beacon {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-edge); }
-  50%      { box-shadow: 0 0 0 6px transparent; }
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-wash); }
+  50%      { box-shadow: 0 0 0 7px transparent; }
 }
 
 .env-name {
-  margin-top: 7px;
+  margin-top: 8px;
   font-family: var(--mono);
-  font-size: 27px;
+  font-size: clamp(30px, 8vw, 38px);
   font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--fg);
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 .env-facts {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
+  gap: 8px 16px;
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--fg-muted);
@@ -195,9 +122,21 @@ body {
   box-shadow: 0 0 0 3px hsl(2 78% 62% / 0.16);
 }
 
-/* ── Compose ────────────────────────────────────────────────────────────── */
+/* ── Card ───────────────────────────────────────────────────────────────── */
 
-.compose { display: flex; gap: 8px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  overflow: hidden;
+}
+
+.compose {
+  display: flex;
+  gap: 8px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+}
 
 .input {
   flex: 1;
@@ -223,7 +162,7 @@ body {
   color: hsl(225 20% 8%);
   border: none;
   border-radius: 9px;
-  padding: 10px 17px;
+  padding: 10px 18px;
   font: inherit;
   font-size: 13.5px;
   font-weight: 650;
@@ -232,29 +171,22 @@ body {
 }
 .btn:hover:not(:disabled) { filter: brightness(1.1); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* ── Tasks ──────────────────────────────────────────────────────────────── */
+/* ── List ───────────────────────────────────────────────────────────────── */
 
-.panel {
-  background: var(--surface-2);
-  border: 1px solid var(--line-soft);
-  border-radius: 11px;
-  overflow: hidden;
-}
-
-.panel-head {
+.list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line-soft);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
-.panel-title {
+.list-title {
   font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--fg-faint);
 }
@@ -263,10 +195,6 @@ body {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--fg-muted);
-  background: var(--bg);
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  padding: 1px 8px;
 }
 
 .tasks { list-style: none; }
@@ -276,8 +204,8 @@ body {
   align-items: center;
   gap: 11px;
   padding: 11px 14px;
-  border-bottom: 1px solid var(--line-soft);
-  animation: slip 0.25s ease both;
+  border-bottom: 1px solid var(--line);
+  animation: slip 0.22s ease both;
 }
 .task:last-child { border-bottom: none; }
 
@@ -308,7 +236,6 @@ body {
   min-width: 0;
   font-size: 13.5px;
   line-height: 1.45;
-  color: var(--fg);
   word-break: break-word;
 }
 .task.is-done .task-text { color: var(--fg-faint); text-decoration: line-through; }
@@ -335,35 +262,20 @@ body {
   color: var(--fg-faint);
 }
 
-/* ── Footer ─────────────────────────────────────────────────────────────── */
+/* ── Footer and states ──────────────────────────────────────────────────── */
 
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 18px;
-  background: var(--surface-2);
-  border-top: 1px solid var(--line-soft);
+.foot {
   font-size: 11.5px;
   color: var(--fg-faint);
+  text-align: center;
 }
-
-.footer a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.footer a:hover { text-decoration: underline; }
-
-/* ── States ─────────────────────────────────────────────────────────────── */
 
 .centred {
-  min-height: 220px;
+  min-height: 60vh;
   display: grid;
-  place-items: center;
-  gap: 14px;
-  padding: 32px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
   text-align: center;
 }
 
@@ -378,14 +290,9 @@ body {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.fail-title { font-size: 14px; font-weight: 600; color: var(--fg); }
-.fail-note { font-size: 12.5px; color: var(--fg-muted); max-width: 34ch; line-height: 1.5; }
+.fail-title { font-size: 15px; font-weight: 600; }
+.fail-note { font-size: 13px; color: var(--fg-muted); max-width: 34ch; line-height: 1.55; }
 .fail-note code { font-family: var(--mono); color: var(--fg); }
-
-@media (max-width: 420px) {
-  .env-name { font-size: 23px; }
-  .content { padding: 14px; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
