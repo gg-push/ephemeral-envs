@@ -15,12 +15,7 @@ const Check = () => (
 
 const Cross = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-    <path
-      d="M2 2l8 8M10 2l-8 8"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-    />
+    <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
   </svg>
 )
 
@@ -88,61 +83,49 @@ function App() {
     await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
   }
 
-  const shell = (body) => (
-    <div className="window">
-      <div className="titlebar">
-        <div className="traffic">
-          <span className="dot dot-red" />
-          <span className="dot dot-yellow" />
-          <span className="dot dot-green" />
-        </div>
-        <div className="titlebar-title">devboard</div>
-      </div>
-      {body}
-    </div>
-  )
-
   if (loading) {
-    return shell(
-      <div className="centred">
-        <div className="spinner" />
-      </div>,
+    return (
+      <main className="page">
+        <div className="centred"><div className="spinner" /></div>
+      </main>
     )
   }
 
   if (failed) {
-    return shell(
-      <div className="centred">
-        <div className="fail-title">Backend unreachable</div>
-        <p className="fail-note">
-          The frontend is up but <code>/api</code> did not answer. The environment is
-          probably still rolling out.
-        </p>
-      </div>,
+    return (
+      <main className="page">
+        <div className="centred">
+          <p className="fail-title">Backend unreachable</p>
+          <p className="fail-note">
+            The frontend is up but <code>/api</code> did not answer. The environment is
+            probably still rolling out.
+          </p>
+        </div>
+      </main>
     )
   }
 
   const dbOk = health?.db === 'connected'
   const done = tasks.filter((t) => t.done).length
 
-  return shell(
-    <>
-      <div className="content">
-        <section className="env">
-          <div className="env-label">
-            <span className="env-beacon" />
-            Preview environment
-          </div>
-          <div className="env-name">{health?.env ?? 'local'}</div>
-          <div className="env-facts">
-            <span className="fact">
-              <span className={`status-dot${dbOk ? '' : ' is-bad'}`} />
-              {dbOk ? 'own database' : 'database unreachable'}
-            </span>
-            <span className="fact">commit {health?.version ?? 'dev'}</span>
-          </div>
-        </section>
+  return (
+    <main className="page">
+      <header className="env">
+        <p className="env-label">
+          <span className="env-beacon" />
+          Preview environment
+        </p>
+        <h1 className="env-name">{health?.env ?? 'local'}</h1>
+        <p className="env-facts">
+          <span className="fact">
+            <span className={`status-dot${dbOk ? '' : ' is-bad'}`} />
+            {dbOk ? 'own database' : 'database unreachable'}
+          </span>
+          <span className="fact">commit {health?.version ?? 'dev'}</span>
+        </p>
+      </header>
 
+      <section className="card">
         <form className="compose" onSubmit={add}>
           <input
             className="input"
@@ -151,57 +134,48 @@ function App() {
             placeholder="What needs doing?"
             aria-label="New task"
           />
-          <button className="btn" type="submit" disabled={!draft.trim()}>
-            Add
-          </button>
+          <button className="btn" type="submit" disabled={!draft.trim()}>Add</button>
         </form>
 
-        <section className="panel">
-          <header className="panel-head">
-            <span className="panel-title">Tasks</span>
-            <span className="badge">{done}/{tasks.length}</span>
-          </header>
+        <div className="list-head">
+          <span className="list-title">Tasks</span>
+          <span className="badge">{done}/{tasks.length}</span>
+        </div>
 
-          {tasks.length === 0 ? (
-            <div className="empty">Nothing here yet</div>
-          ) : (
-            <ul className="tasks">
-              {tasks.map((task) => (
-                <li
-                  key={task.id}
-                  className={[
-                    'task',
-                    task.done ? 'is-done' : '',
-                    task.title.startsWith('[System]') ? 'is-seed' : '',
-                  ].join(' ').trim()}
+        {tasks.length === 0 ? (
+          <p className="empty">Nothing here yet</p>
+        ) : (
+          <ul className="tasks">
+            {tasks.map((task) => (
+              <li
+                key={task.id}
+                className={[
+                  'task',
+                  task.done ? 'is-done' : '',
+                  task.title.startsWith('[System]') ? 'is-seed' : '',
+                ].join(' ').trim()}
+              >
+                <button
+                  className={`check${task.done ? ' is-done' : ''}`}
+                  onClick={() => toggle(task.id)}
+                  aria-label={task.done ? 'Mark as not done' : 'Mark as done'}
                 >
-                  <button
-                    className={`check${task.done ? ' is-done' : ''}`}
-                    onClick={() => toggle(task.id)}
-                    aria-label={task.done ? 'Mark as not done' : 'Mark as done'}
-                  >
-                    {task.done && <Check />}
-                  </button>
-                  <span className="task-text">{task.title}</span>
-                  <button
-                    className="remove"
-                    onClick={() => remove(task.id)}
-                    aria-label="Delete task"
-                  >
-                    <Cross />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+                  {task.done && <Check />}
+                </button>
+                <span className="task-text">{task.title}</span>
+                <button className="remove" onClick={() => remove(task.id)} aria-label="Delete task">
+                  <Cross />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-      <footer className="footer">
-        <span>Isolated Postgres · torn down with the pull request</span>
-        <a href="/api/health">health</a>
+      <footer className="foot">
+        Isolated Postgres · torn down with the pull request
       </footer>
-    </>,
+    </main>
   )
 }
 
