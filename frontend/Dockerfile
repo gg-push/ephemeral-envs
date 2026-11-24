@@ -1,23 +1,22 @@
 # Build stage
-FROM node:20-alpine as build
+FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 
-# Production stage
-FROM nginx:alpine
-# Copy built assets from Vite
+# Production stage (unprivileged non-root nginx on port 8080)
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-# Copy custom nginx config to handle SPA routing (fallback to index.html)
-RUN echo 'server { \
-    listen 80; \
-    location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
+RUN printf 'server {\n\
+    listen 8080;\n\
+    location / {\n\
+        root /usr/share/nginx/html;\n\
+        index index.html index.htm;\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
+USER 101
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
