@@ -57,8 +57,7 @@ subjects:
     namespace: ephemeral-envs-system
 ---
 # Used by each generated KluctlDeployment to actually deploy an environment.
-# Scoped to the resource types a preview environment is made of rather than
-# cluster-admin, so a templating mistake cannot reach the rest of the cluster.
+# Scoped strictly to the resource types and verbs a preview environment needs.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -76,15 +75,22 @@ rules:
       - services
       - configmaps
       - resourcequotas
-      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources:
       - pods
       - events
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
+    resources:
+      - ingresses
+      - networkpolicies
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
