@@ -54,7 +54,9 @@ ephemeral-envs/
 ├── app/                           # Hardened FastAPI backend + pytest suite
 ├── frontend/                      # React/Vite UI served by unprivileged Nginx (:8080)
 ├── deploy/                        # Kluctl templates: namespace, NetworkPolicy, postgres, backend, frontend, ingress
-├── docs/architecture.svg          # Vector architecture diagram
+├── docs/
+│   ├── architecture.svg           # Vector architecture diagram
+│   └── production-server.md       # VPS + custom domain + wildcard TLS + OAuth guide
 ├── gitops/
 │   ├── rbac.yaml                  # Scoped ServiceAccounts & Roles
 │   └── preview-generator.yaml     # Declarative PR polling, 48h TTL expiry, KluctlDeployment & sticky comments
@@ -106,3 +108,5 @@ kluctl diff   -t preview -a pr_number=42 -a image_tag=<sha>
 | **TLS** | Plain HTTP `:80` | `cert-manager` DNS-01 wildcard cert (avoids Let's Encrypt rate limits & CT-log branch leaks) |
 | **Access Control** | Bound to `127.0.0.1` | `oauth2-proxy` Traefik middleware (GitHub OAuth SSO, no per-PR passwords) |
 | **Observability** | `kubectl top pod -n pr-42` / `k9s` | Prometheus + Grafana scraping `/metrics` |
+
+See **[docs/production-server.md](docs/production-server.md)** for the step-by-step guide to deploying on a Linux VPS (`k3s`) with a wildcard custom domain, `cert-manager` DNS-01 TLS, and GitHub OAuth access control.
