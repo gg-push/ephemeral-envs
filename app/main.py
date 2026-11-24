@@ -1,3 +1,4 @@
+import html
 import os
 import time
 from contextlib import asynccontextmanager
@@ -85,7 +86,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -113,6 +114,9 @@ def render_page(tasks: list[Task]) -> str:
     env_color = f"hsl({pr_hue}, 65%, 52%)"
     env_color_soft = f"hsla({pr_hue}, 65%, 52%, 0.12)"
     env_color_border = f"hsla({pr_hue}, 65%, 52%, 0.25)"
+    safe_env = html.escape(ENV_NAME)
+    safe_pr = html.escape(PR_NUMBER)
+    safe_version = html.escape(APP_VERSION)
 
     task_rows = ""
     for t in tasks:
@@ -120,12 +124,13 @@ def render_page(tasks: list[Task]) -> str:
         done_class = "done" if t.done else ""
         checkmark = '<svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' if t.done else ""
         checked_class = "checked" if t.done else ""
+        safe_title = html.escape(t.title)
         task_rows += f"""
         <li class="task-item {seed_class}">
           <form method="post" action="/api/tasks/{t.id}/toggle" style="display:contents">
             <button type="submit" class="check-btn {checked_class}">{checkmark}</button>
           </form>
-          <span class="task-label {done_class}">{t.title}</span>
+          <span class="task-label {done_class}">{safe_title}</span>
           <form method="post" action="/api/tasks/{t.id}/delete" style="display:contents">
             <button type="submit" class="delete-btn" title="Delete">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -143,7 +148,7 @@ def render_page(tasks: list[Task]) -> str:
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DevBoard — {ENV_NAME}</title>
+  <title>DevBoard — {safe_env}</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
@@ -338,14 +343,14 @@ def render_page(tasks: list[Task]) -> str:
         <div class="dot dot-yellow"></div>
         <div class="dot dot-green"></div>
       </div>
-      <div class="titlebar-center">DevBoard — {ENV_NAME}</div>
+      <div class="titlebar-center">DevBoard — {safe_env}</div>
     </div>
 
     <div class="content">
 
       <div class="env-pill">
         <div class="env-dot"></div>
-        <span class="env-pill-text">PR #{PR_NUMBER} · Live Preview</span>
+        <span class="env-pill-text">PR #{safe_pr} · Live Preview</span>
       </div>
 
       <div class="section">
@@ -373,11 +378,11 @@ def render_page(tasks: list[Task]) -> str:
           <div class="meta-grid">
             <div class="meta-item">
               <div class="meta-label">Environment</div>
-              <div class="meta-value">{ENV_NAME}</div>
+              <div class="meta-value">{safe_env}</div>
             </div>
             <div class="meta-item">
               <div class="meta-label">Pull Request</div>
-              <div class="meta-value">#{PR_NUMBER}</div>
+              <div class="meta-value">#{safe_pr}</div>
             </div>
             <div class="meta-item">
               <div class="meta-label">Tasks</div>
@@ -385,7 +390,7 @@ def render_page(tasks: list[Task]) -> str:
             </div>
             <div class="meta-item">
               <div class="meta-label">Database</div>
-              <div class="meta-value">postgres-{ENV_NAME}</div>
+              <div class="meta-value">postgres.{safe_env}.svc</div>
             </div>
           </div>
         </div>
@@ -394,7 +399,7 @@ def render_page(tasks: list[Task]) -> str:
     </div>
 
     <div class="window-footer">
-      <span class="footer-text">v{APP_VERSION}</span>
+      <span class="footer-text">v{safe_version}</span>
       <a class="docs-link" href="/docs">API Docs →</a>
     </div>
 
@@ -448,7 +453,7 @@ def db_info(db: Session = Depends(get_db)):
     return {
         "env_name": ENV_NAME,
         "pr_number": PR_NUMBER,
-        "db_host": f"postgres-{ENV_NAME}",
+        "db_host": f"postgres.{ENV_NAME}.svc",
         "record_count": count,
     }
 

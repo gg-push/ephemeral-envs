@@ -82,6 +82,15 @@ def test_index_renders_tasks(client):
     assert "PR #42" in response.text
 
 
+def test_index_escapes_html_in_task_title(client):
+    client.post("/api/tasks", json={"title": "<script>alert(1)</script>"})
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+    assert "<script>alert(1)</script>" not in response.text
+
+
 def test_db_info_reports_record_count(client):
     client.post("/api/tasks", json={"title": "One"})
     client.post("/api/tasks", json={"title": "Two"})
@@ -89,3 +98,4 @@ def test_db_info_reports_record_count(client):
     body = client.get("/api/db/info").json()
     assert body["record_count"] == 2
     assert body["pr_number"] == "42"
+    assert body["db_host"] == "postgres.pr-42.svc"
