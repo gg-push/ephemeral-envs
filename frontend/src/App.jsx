@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const Check = () => (
   <svg width="11" height="11" viewBox="0 0 10 10" aria-hidden="true">
     <polyline
-      points="1.5,5.2 3.9,7.6 8.5,2.6"
+      points="1.6,5.2 4,7.6 8.4,2.6"
       fill="none"
-      stroke="hsl(225 20% 8%)"
-      strokeWidth="1.8"
+      stroke="#ffffff"
+      strokeWidth="1.9"
       strokeLinecap="round"
       strokeLinejoin="round"
     />
@@ -15,9 +15,24 @@ const Check = () => (
 
 const Cross = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-    <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
   </svg>
 )
+
+async function fetchSnapshot() {
+  const [tasksRes, healthRes] = await Promise.all([
+    fetch('/api/tasks'),
+    fetch('/api/health'),
+  ])
+  // /api/health returns 503 when Postgres is unreachable while still sending its
+  // JSON payload, so we parse it either way.
+  if (!tasksRes.ok && !healthRes.ok) {
+    throw new Error('backend unreachable')
+  }
+  const health = await healthRes.json()
+  const tasks = tasksRes.ok ? await tasksRes.json() : []
+  return { health, tasks }
+}
 
 function App() {
   const [tasks, setTasks] = useState([])
@@ -25,41 +40,71 @@ function App() {
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef(null)
 
-  // Every environment gets its own hue, so which preview you are looking at is
-  // obvious at a glance rather than something you read out of the URL bar.
-  //
-  // 137 is the golden angle: it spreads consecutive values as far apart on the
-  // colour wheel as possible. Pull requests are numbered consecutively, so a
-  // smaller step makes PR 9 and PR 10 nearly the same colour.
   const prNumber = health?.pr ?? '0'
-  const hue = (Number.parseInt(prNumber, 10) * 137) % 360
+  const envName = health?.env ?? 'local'
+  const commitSha = health?.version ?? 'dev'
+  const parsedPr = Number.parseInt(prNumber, 10)
+  // 137 is the golden angle so consecutive PR numbers get distinct hues.
+  const hue = Number.isNaN(parsedPr) ? 210 : (parsedPr * 137) % 360
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--env-h', Number.isNaN(hue) ? 210 : hue)
+    document.documentElement.style.setProperty('--env-h', String(hue))
   }, [hue])
 
-  const load = useCallback(async () => {
-    try {
-      const [tasksRes, healthRes] = await Promise.all([
-        fetch('/api/tasks'),
-        fetch('/api/health'),
-      ])
-      // /api/health answers 503 when the database is unreachable, and still
-      // returns a useful body, so it is read either way.
-      if (!tasksRes.ok && !healthRes.ok) throw new Error('backend unreachable')
+  useEffect(() => {
+    if (health?.env) {
+      document.title = `${health.env} preview`
+    }
+  }, [health])
 
-      setHealth(await healthRes.json())
-      setTasks(tasksRes.ok ? await tasksRes.json() : [])
+  useEffect(() => {
+    let cancelled = false
+    fetchSnapshot()
+      .then((data) => {
+        if (cancelled) return
+        setHealth(data.health)
+        setTasks(data.tasks)
+        setFailed(false)
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    }
+  }, [])
+
+  const retry = async () => {
+    setLoading(true)
+    try {
+      const data = await fetchSnapshot()
+      setHealth(data.health)
+      setTasks(data.tasks)
       setFailed(false)
     } catch {
       setFailed(true)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
 
-  useEffect(() => { load() }, [load])
+  const copyCommit = async () => {
+    try {
+      await navigator.clipboard?.writeText(commitSha)
+      setCopied(true)
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard API can be blocked on non-HTTPS origins; ignore quietly.
+    }
+  }
 
   const add = async (event) => {
     event.preventDefault()
@@ -89,96 +134,135 @@ function App() {
 
   if (loading) {
     return (
-      <main className="page">
-        <div className="centred"><div className="spinner" /></div>
+      <main className="desk">
+        <div className="sheet sheet-state" role="status" aria-live="polite">
+          <div className="spinner" />
+          <p className="state-note">Connecting to preview environment</p>
+        </div>
       </main>
     )
   }
 
   if (failed) {
     return (
-      <main className="page">
-        <div className="centred">
-          <p className="fail-title">Backend unreachable</p>
-          <p className="fail-note">
-            The frontend is up but <code>/api</code> did not answer. The environment is
-            probably still rolling out.
-          </p>
-        </div>
+      <main className="desk">
+        <section className="sheet sheet-state">
+          <div className="stamp-bar" aria-hidden="true" />
+          <div className="state-body">
+            <h1 className="state-title">Preview API is still starting up</h1>
+            <p className="state-note">
+              The frontend is ready, but <code>/api/health</code> has not answered yet. Wait a
+              few seconds for Postgres and FastAPI to finish booting, then check again.
+            </p>
+            <button className="btn" type="button" onClick={retry}>
+              Try again
+            </button>
+          </div>
+        </section>
       </main>
     )
   }
 
   const dbOk = health?.db === 'connected'
-  const done = tasks.filter((t) => t.done).length
+  const doneCount = tasks.filter((t) => t.done).length
 
   return (
-    <main className="page">
-      <header className="env">
-        <p className="env-label">
-          <span className="env-beacon" />
-          Preview environment
-        </p>
-        <h1 className="env-name">{health?.env ?? 'local'}</h1>
-        <p className="env-facts">
-          <span className="fact">
-            <span className={`status-dot${dbOk ? '' : ' is-bad'}`} />
-            {dbOk ? 'own database' : 'database unreachable'}
-          </span>
-          <span className="fact">commit {health?.version ?? 'dev'}</span>
-        </p>
-      </header>
+    <main className="desk">
+      <article className="sheet">
+        <div className="stamp-bar" aria-hidden="true" />
 
-      <section className="card">
+        <header className="sheet-head">
+          <div className="head-top">
+            <span className="env-tag">
+              <span className="env-swatch" aria-hidden="true" />
+              Pull request #{prNumber}
+            </span>
+            <button
+              type="button"
+              className="sha-btn"
+              onClick={copyCommit}
+              title="Copy commit SHA"
+            >
+              {copied ? 'Copied' : `Commit ${commitSha}`}
+            </button>
+          </div>
+
+          <h1 className="env-name">{envName}</h1>
+
+          <p className="env-meta">
+            <span className="db-pill">
+              <span className={`db-dot${dbOk ? '' : ' is-bad'}`} aria-hidden="true" />
+              {dbOk ? 'Postgres connected' : 'Postgres unreachable'}
+            </span>
+            <span className="ns-note">Isolated namespace</span>
+          </p>
+        </header>
+
         <form className="compose" onSubmit={add}>
           <input
             className="input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="What needs doing?"
-            aria-label="New task"
+            placeholder="Add a review note..."
+            aria-label="Add a review note"
           />
-          <button className="btn" type="submit" disabled={!draft.trim()}>Add</button>
+          <button className="btn" type="submit" disabled={!draft.trim()}>
+            Add note
+          </button>
         </form>
 
-        <div className="list-head">
-          <span className="list-title">Tasks</span>
-          <span className="badge">{done}/{tasks.length}</span>
+        <div className="list-bar">
+          <h2 className="list-heading">Review checklist</h2>
+          <span className="list-count">
+            {doneCount} of {tasks.length} done
+          </span>
         </div>
 
         {tasks.length === 0 ? (
-          <p className="empty">Nothing here yet</p>
+          <p className="empty">Nothing logged yet. Add a quick check while reviewing this branch.</p>
         ) : (
           <ul className="tasks">
-            {tasks.map((task) => (
-              <li
-                key={task.id}
-                className={[
-                  'task',
-                  task.done ? 'is-done' : '',
-                  task.title.startsWith('[System]') ? 'is-seed' : '',
-                ].join(' ').trim()}
-              >
-                <button
-                  className={`check${task.done ? ' is-done' : ''}`}
-                  onClick={() => toggle(task.id)}
-                  aria-label={task.done ? 'Mark as not done' : 'Mark as done'}
+            {tasks.map((task) => {
+              const isSystem = task.title.startsWith('[System]')
+              return (
+                <li
+                  key={task.id}
+                  className={[
+                    'task',
+                    task.done ? 'is-done' : '',
+                    isSystem ? 'is-seed' : '',
+                  ]
+                    .join(' ')
+                    .trim()}
                 >
-                  {task.done && <Check />}
-                </button>
-                <span className="task-text">{task.title}</span>
-                <button className="remove" onClick={() => remove(task.id)} aria-label="Delete task">
-                  <Cross />
-                </button>
-              </li>
-            ))}
+                  <button
+                    type="button"
+                    className={`check${task.done ? ' is-done' : ''}`}
+                    onClick={() => toggle(task.id)}
+                    aria-label={task.done ? 'Mark as not done' : 'Mark as done'}
+                  >
+                    {task.done && <Check />}
+                  </button>
+                  <span className="task-text">{task.title}</span>
+                  <button
+                    type="button"
+                    className="remove"
+                    onClick={() => remove(task.id)}
+                    aria-label="Remove note"
+                  >
+                    <Cross />
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
-      </section>
 
-      <footer className="foot">
-        Isolated Postgres · torn down with the pull request
-      </footer>
+        <footer className="sheet-foot">
+          Isolated namespace with its own Postgres database. Removed automatically when this PR
+          closes or sits idle for 48 hours.
+        </footer>
+      </article>
     </main>
   )
 }
