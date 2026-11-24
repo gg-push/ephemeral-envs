@@ -11,6 +11,7 @@ deployments:
   - barrier: true
     message: Waiting for the preview namespace
 
+  - path: deploy/networkpolicy
   - path: deploy/postgres
   - path: deploy/backend
   - path: deploy/frontend

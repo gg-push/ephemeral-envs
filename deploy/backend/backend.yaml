@@ -29,9 +29,22 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: app
           image: "{{ args.registry }}/ephemeral-envs-backend:{{ args.image_tag }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8000
           env:
@@ -45,6 +58,9 @@ spec:
               value: "{{ args.pr_number }}"
             - name: APP_VERSION
               value: "{{ args.image_tag[:7] }}"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           # Startup gets a generous budget because the app waits for Postgres
           # rather than crash-looping until it appears.
           startupProbe:
@@ -73,3 +89,6 @@ spec:
             limits:
               cpu: "100m"
               memory: "128Mi"
+      volumes:
+        - name: tmp
+          emptyDir: {}
