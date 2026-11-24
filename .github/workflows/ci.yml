@@ -3,8 +3,15 @@ name: CI
 # Runs entirely on GitHub-hosted runners. Nothing here touches the cluster.
 on:
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,9 +25,9 @@ jobs:
     name: Lint and test Python
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # Matches app/Dockerfile.
           python-version: "3.12"
@@ -40,12 +47,18 @@ jobs:
     name: Render and validate manifests
     runs-on: ubuntu-latest
     env:
+      KLUCTL_VERSION: "2.28.2"
       KUBECONFORM_VERSION: "0.6.7"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install kluctl
-        run: curl -s https://kluctl.io/install.sh | bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o kluctl.tar.gz \
+            "https://github.com/kluctl/kluctl/releases/download/v${KLUCTL_VERSION}/kluctl_v${KLUCTL_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kluctl.tar.gz kluctl
+          sudo mv kluctl /usr/local/bin/
 
       - name: Install kubeconform
         run: |
@@ -83,6 +96,7 @@ jobs:
           # would quietly produce a namespace called "pr-" shared by every
           # environment. These assertions make that loud.
           grep -q "name: pr-999" /tmp/rendered.yaml
+          grep -q "kind: NetworkPolicy" /tmp/rendered.yaml
           grep -q "host: pr-999.local.127.0.0.1.nip.io" /tmp/rendered.yaml
           grep -q "ghcr.io/gg-push/ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
           grep -q "ghcr.io/gg-push/ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
@@ -120,15 +134,16 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        # frontend/ has no committed lockfile, so npm ci is not usable yet.
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
