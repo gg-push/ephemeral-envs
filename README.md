@@ -1,71 +1,23 @@
 # Ephemeral Preview Environments
 
-Every open pull request has a live, isolated environment — its own frontend, backend, database and URL. Close the PR and it disappears.
+[![CI](https://github.com/gg-push/ephemeral-envs/actions/workflows/ci.yml/badge.svg)](https://github.com/gg-push/ephemeral-envs/actions/workflows/ci.yml)
 
-```
+Every open pull request gets a live, isolated preview environment — its own React frontend, FastAPI backend, PostgreSQL 16 database, `NetworkPolicy`, and URL. Close the PR or leave it idle for 48 hours and the environment is pruned automatically.
+
+```text
 PR #42 opened  →  http://pr-42.local.127.0.0.1.nip.io   ~90s
 PR #42 closed  →  gone                                  ~60s
 ```
 
-## The idea
+## The Idea
 
-The obvious build is event-driven: PR opens → deploy, PR closes → destroy. That has a structural flaw. A webhook is an **event** — miss it and you are permanently out of sync. Close a PR while the machine is asleep and its environment lives forever.
-
-So nothing here reacts to a pull request closing. A controller inside the cluster continuously asks GitHub *which pull requests are open* and makes reality match the answer. There is no cleanup code in this repository.
+Event-driven preview setups break when a webhook is missed or a laptop is asleep when a PR closes. Instead, a controller inside the cluster continuously polls GitHub for open pull requests and reconciles cluster state to match. Nothing pushes into the cluster, and CI holds zero cluster credentials.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    DEV(["Developer"])
+![Ephemeral Preview Environments Architecture](./docs/architecture.svg)
 
-    subgraph GH["GitHub"]
-        PR["PR #42"]
-        ACT["Actions"]
-        REG[("GHCR")]
-    end
-
-    subgraph CLUSTER["k3d cluster"]
-        subgraph LOOP["reconciliation loop · 60s"]
-            L["ListGithubPullRequests"]
-            O["ObjectTemplate"]
-            K["KluctlDeployment"]
-        end
-        subgraph NS["namespace pr-42"]
-            FE["frontend"]
-            BE["backend"]
-            DB[("postgres")]
-        end
-        TR{{"Traefik"}}
-    end
-
-    DEV --> PR
-    PR --> ACT
-    ACT -->|push| REG
-    L -.->|polls| PR
-    L --> O --> K
-    K ==>|deploys| NS
-    REG -.->|pulls| NS
-    BE --> DB
-    DEV --> TR
-    TR -->|"/"| FE
-    TR -->|"/api"| BE
-
-    classDef gh fill:#1f2328,stroke:#57606a,color:#fff
-    classDef k8s fill:#326ce5,stroke:#1a4bb8,color:#fff
-    classDef db fill:#336791,stroke:#204a6b,color:#fff
-    classDef loop fill:#0d7d6c,stroke:#075447,color:#fff
-    class PR,ACT gh
-    class FE,BE,TR k8s
-    class DB,REG db
-    class L,O,K loop
-```
-
-The arrow that matters is the dotted one from `ListGithubPullRequests` back to GitHub. It points *into* the cluster's control loop, not out of GitHub. Nothing is ever pushed at the cluster, so there is no delivery to fail and no event to miss.
-
-Teardown falls out of the same mechanism. A closed PR leaves the list → the matrix input vanishes → the generated `KluctlDeployment` is pruned → `delete: true` removes everything it created.
-
-Idle expiry is the same again: a PR untouched for 48h fails the condition, stops being generated, and is pruned. Push to it and the condition flips back, so there is no restore path to implement.
+`ListGithubPullRequests` polls GitHub every 60s (restricted to same-repo branches via `head: gg-push:.*`). `ObjectTemplate` renders one `KluctlDeployment` per active PR (within a 48h idle TTL). Closing a PR or exceeding 48h of inactivity removes the `KluctlDeployment`, and `delete: true` deletes the entire `pr-<n>` namespace. `pr-closed.yml` only updates the sticky PR comment so no dead URL remains on the closed PR.
 
 ## Setup
 
@@ -77,82 +29,59 @@ k3d cluster create ephemeral-envs -p "80:80@loadbalancer" -p "443:443@loadbalanc
 kluctl controller install
 kubectl apply -f https://raw.githubusercontent.com/kluctl/template-controller/v0.9.4/deploy/manifests/template-controller.yaml
 
-# 3. RBAC and credentials
+# 3. Least-privilege RBAC and GitHub credentials
 kubectl apply -f gitops/rbac.yaml
 kubectl create secret generic github-credentials -n ephemeral-envs-system \
   --from-literal=token=ghp_xxx \
   --from-literal=username=<you> \
   --from-literal=password=ghp_xxx
 
-# 4. Start the loop
+# 4. Start the reconciliation loop
 kubectl apply -f gitops/preview-generator.yaml
 ```
 
-The GHCR packages must be **public** so preview namespaces pull without an `imagePullSecret` — otherwise a registry token has to live in Git. Package visibility is independent of repository visibility.
+GHCR packages are public so preview namespaces pull multi-arch (`linux/amd64`, `linux/arm64`) images without committing registry tokens to Git.
 
-## Working on it
+## Working on It
 
-The project the controller runs is the same one you can drive from a shell:
+The project the controller reconciles is the same project you drive from the CLI:
 
 ```bash
-kluctl diff   -t preview -a pr_number=42 -a image_tag=<sha>   # what would change
+kluctl diff   -t preview -a pr_number=42 -a image_tag=<sha>   # preview changes
 kluctl render -t preview -a pr_number=42 --offline-kubernetes --print-all
-kluctl deploy -t preview -a pr_number=42 -a image_tag=<sha>   # bypass GitOps
+kluctl deploy -t preview -a pr_number=42 -a image_tag=<sha>   # direct deploy
 ```
 
-Looking at a running environment needs nothing installed in the cluster:
+Inspect a live environment with `kubectl top pod -n pr-42` or `k9s -n pr-42`.
 
-```bash
-kubectl top pod -n pr-42
-k9s -n pr-42
-```
+## Repository Layout
 
-## Layout
-
-```
-.kluctl.yaml               targets, args, pruning discriminator
-deployment.yaml            deployment order, common labels
-deploy/                    templated manifests, one dir per component
+```text
+.kluctl.yaml               Targets, args, per-PR pruning discriminator
+deployment.yaml            Deployment ordering and common labels/annotations
+deploy/                    Templated manifests (namespace, NetworkPolicy, postgres, backend, frontend, ingress)
+docs/architecture.svg      Pull-based GitOps & isolated preview architecture diagram
 gitops/
-  rbac.yaml                scoped ServiceAccounts
-  preview-generator.yaml   the entire PR lifecycle, declared
-app/  frontend/            the application being previewed
-.github/workflows/         lint + test + render; build images
+  rbac.yaml                Least-privilege ServiceAccounts (preview-templater, preview-deployer)
+  preview-generator.yaml   Declarative PR open/close/48h-idle lifecycle
+app/  frontend/            Hardened non-root FastAPI + React/Nginx preview application
+.github/workflows/         CI (ruff, pytest, kluctl + kubeconform, oxlint/vite) & multi-arch Buildx publish
 ```
 
-No `kustomization.yaml` under `deploy/` — kluctl generates one for any directory without it.
+No `kustomization.yaml` under `deploy/` — `kluctl` generates one automatically for each directory.
 
-## Decisions
+## Key Engineering Decisions
 
-**kluctl over ArgoCD/Flux.** Flux has no pull-request generator, so the dynamic part would be mine to maintain. ArgoCD's `ApplicationSet` fits but threads per-PR values through awkward kustomize patches. kluctl templates them inline as `{{ args.pr_number }}`, and the same project runs from the CLI and the controller — so `kluctl diff` shows exactly what GitOps will do.
+- **Kluctl over ArgoCD/Flux:** `kluctl` templates `{{ args.pr_number }}` inline without Kustomize patch gymnastics, and `kluctl diff` runs the exact same deployment code locally that the in-cluster controller runs.
+- **No `namePrefix`:** Every environment runs inside its own `pr-<n>` namespace, so Postgres is `postgres` everywhere (`postgres.pr-<n>.svc`) and `DATABASE_URL` never varies.
+- **Immutable head-SHA image tags + multi-arch Buildx:** Built once per commit for `linux/amd64` and `linux/arm64` with scoped GHA caches (`scope=backend`, `scope=frontend`).
+- **Separate `/api/live` & `/api/health` probes:** `/api/health` checks PostgreSQL and returns `503` on failure (pulling unready pods from Service endpoints); `/api/live` checks only the process so a slow DB never triggers a restart loop.
+- **Defense-in-depth per preview namespace:** Non-root containers (`UID 1000` backend, `UID 101` unprivileged Nginx on `:8080`, `UID 70` Postgres), `readOnlyRootFilesystem: true`, `capabilities.drop: ["ALL"]`, `RuntimeDefault` seccomp, `automountServiceAccountToken: false`, `ResourceQuota`, and `NetworkPolicy` (`env-isolation`) blocking cross-namespace DB access.
 
-**No `namePrefix`.** Each environment is alone in its namespace, so the Postgres Service is `postgres` everywhere and `DATABASE_URL` is a constant.
-
-**Images tagged with the head SHA.** A mutable `pr-42` tag cannot answer "which commit is running here."
-
-**`prune` ≠ `delete`.** `prune` removes orphaned objects during a reconcile; `delete` removes everything when the `KluctlDeployment` goes away. Only setting the first leaks a namespace per closed PR, silently.
-
-**Liveness and readiness probe different endpoints.** `/api/health` checks the database and returns 503 when it is unreachable. `/api/live` touches nothing, so a slow Postgres cannot cascade into restarting the app.
-
-**CI holds no cluster credentials**, and `ListGithubPullRequests` filters on `head:` so fork branches never become environments.
-
-## Known gaps
+## Known Gaps (Local Laptop vs. Production Cluster)
 
 | Gap | Why |
 |---|---|
-| No auth on environments | A generated password cannot be committed to Git. Everything is on `127.0.0.1`. |
-| No retained metrics | `kubectl top` and k9s show current state only. A real server would want a metrics stack. |
-
-## Running on a real cluster
-
-The deployment project, generator, controllers, RBAC, CI and images are unchanged. Four things differ:
-
-**Domain.** Set it in three places — the `base_domain` arg in `.kluctl.yaml`, the URL in the `GithubComment` body in `gitops/preview-generator.yaml`, and the assertion in `ci.yml`. Point a wildcard `*.preview.example.com` A record at the server.
-
-**TLS.** cert-manager with a DNS-01 wildcard certificate. Per-environment HTTP-01 certs hit Let's Encrypt rate limits and publish every branch name to Certificate Transparency logs.
-
-**Auth.** oauth2-proxy as a Traefik middleware — one GitHub OAuth app, no per-environment secret to generate or rotate.
-
-**Isolation.** Default-deny NetworkPolicies between preview namespaces. Postgres uses the same credentials in every namespace.
-
-Both gaps above stop being optional at that point, and scale-to-zero starts paying for itself.
+| No auth on preview URLs | Generated passwords cannot live in Git; local previews bind to `127.0.0.1` via `nip.io`. Production adds `oauth2-proxy` as a Traefik middleware. |
+| Self-signed/HTTP on localhost | Production adds `cert-manager` DNS-01 wildcard certs (`*.preview.example.com`) to avoid Let's Encrypt rate limits and CT-log leaks. |
+| No retained metrics | `kubectl top` and `k9s` cover local inspection; production attaches Prometheus/Grafana scraping `/metrics`. |
