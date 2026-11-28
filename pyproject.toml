@@ -9,10 +9,6 @@ extend-exclude = ["actions-runner", "frontend"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = [
-    # The HTML template in app/main.py is intentionally long.
-    "E501",
-]
 
 [tool.ruff.lint.isort]
 # The app runs with its own directory on sys.path (WORKDIR /app), so these are
@@ -20,6 +16,6 @@ ignore = [
 known-first-party = ["main", "models", "database"]
 
 [tool.ruff.lint.flake8-bugbear]
-# Calling Depends()/Form() in an argument default is the FastAPI idiom, not the
+# Calling Depends() in an argument default is the FastAPI idiom, not the
 # mutable-default bug B008 is looking for.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]

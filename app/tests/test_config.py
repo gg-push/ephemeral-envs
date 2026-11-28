@@ -1,27 +1,6 @@
 """Tests for module-level configuration and startup behaviour."""
 
-import importlib
-
 import pytest
-
-
-def _reload_main(monkeypatch, **env):
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    import main
-
-    return importlib.reload(main)
-
-
-def test_hue_is_derived_from_the_pr_number(monkeypatch):
-    main = _reload_main(monkeypatch, PR_NUMBER="3")
-    assert main.pr_hue == (3 * 137) % 360
-
-
-def test_non_numeric_pr_number_does_not_crash_the_process(monkeypatch):
-    """A non-numeric PR_NUMBER used to raise ValueError at import time."""
-    main = _reload_main(monkeypatch, PR_NUMBER="not-a-number")
-    assert 0 <= main.pr_hue < 360
 
 
 def test_wait_for_database_gives_up_after_the_timeout(monkeypatch):

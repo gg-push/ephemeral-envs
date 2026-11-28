@@ -53,10 +53,12 @@ def test_create_and_list_task(client):
 def test_toggle_flips_done(client):
     task_id = client.post("/api/tasks", json={"title": "Toggle me"}).json()["id"]
 
-    client.post(f"/api/tasks/{task_id}/toggle", follow_redirects=False)
+    response = client.post(f"/api/tasks/{task_id}/toggle")
+    assert response.status_code == 200
+    assert response.json()["done"] is True
     assert client.get("/api/tasks").json()[0]["done"] is True
 
-    client.post(f"/api/tasks/{task_id}/toggle", follow_redirects=False)
+    assert client.post(f"/api/tasks/{task_id}/toggle").json()["done"] is False
     assert client.get("/api/tasks").json()[0]["done"] is False
 
 
@@ -71,24 +73,6 @@ def test_delete_removes_task(client):
 def test_missing_task_returns_404(client):
     assert client.delete("/api/tasks/9999").status_code == 404
     assert client.post("/api/tasks/9999/toggle").status_code == 404
-
-
-def test_index_renders_tasks(client):
-    client.post("/api/tasks", json={"title": "Visible in the HTML"})
-
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "Visible in the HTML" in response.text
-    assert "PR #42" in response.text
-
-
-def test_index_escapes_html_in_task_title(client):
-    client.post("/api/tasks", json={"title": "<script>alert(1)</script>"})
-
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
-    assert "<script>alert(1)</script>" not in response.text
 
 
 def test_db_info_reports_record_count(client):
