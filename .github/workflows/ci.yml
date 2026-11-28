@@ -97,6 +97,8 @@ jobs:
           # environment. These assertions make that loud.
           grep -q "name: pr-999" /tmp/rendered.yaml
           grep -q "kind: NetworkPolicy" /tmp/rendered.yaml
+          grep -q "kluctl.io/hook: pre-deploy-initial,pre-deploy" /tmp/rendered.yaml
+          grep -q "value: gg-push$" /tmp/rendered.yaml           # REGISTRY_OWNER split
           grep -q "host: pr-999.local.127.0.0.1.nip.io" /tmp/rendered.yaml
           grep -q "ghcr.io/gg-push/ephemeral-envs-backend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml
           grep -q "ghcr.io/gg-push/ephemeral-envs-frontend:deadbeefcafe1234567890abcdef1234567890ab" /tmp/rendered.yaml

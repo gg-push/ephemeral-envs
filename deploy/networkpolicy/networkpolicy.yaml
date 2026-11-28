@@ -39,3 +39,25 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+---
+# NetworkPolicies are additive, so this grants one extra path to one pod: the
+# build-gate Job may reach the registry over HTTPS to check whether this
+# commit's images exist. Every other pod stays confined by env-isolation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: image-wait-egress
+  namespace: "pr-{{ args.pr_number }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: image-wait
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443

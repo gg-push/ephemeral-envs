@@ -13,6 +13,14 @@ deployments:
 
   - path: deploy/networkpolicy
   - path: deploy/postgres
+
+  # Postgres has no build step, so it starts while this waits. The app
+  # deployments are only updated once their images exist, so a push never
+  # rolls out to ImagePullBackOff.
+  - path: deploy/wait-for-images
+  - barrier: true
+    message: Waiting for CI to publish this commit's images
+
   - path: deploy/backend
   - path: deploy/frontend
   - path: deploy/ingress

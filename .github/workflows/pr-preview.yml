@@ -42,8 +42,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tagged with the head SHA because that is exactly what the ObjectTemplate
-      # passes as image_tag. If the two ever disagree the environment sits in
-      # ImagePullBackOff, which is loud and obvious.
+      # passes as image_tag. The deploy/wait-for-images hook polls for this
+      # exact tag, so if the two ever disagree the rollout never starts and the
+      # KluctlDeployment reports the hook failure.
       - name: Build and push backend (multi-arch)
         uses: docker/build-push-action@v7
         with:

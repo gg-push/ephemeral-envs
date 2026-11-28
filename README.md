@@ -10,8 +10,8 @@ In most teams, developers fight over a single shared staging server. This projec
 
 | Event | What Happens Automatically | Typical Time |
 |---|---|---|
-| **PR Opened** | CI builds immutable multi-arch images (`:<sha>`), spins up namespace `pr-<n>`, routes `http://pr-<n>.local.127.0.0.1.nip.io`, and comments the URL on the PR | ~90s |
-| **New Commit Pushed** | CI builds new `:<sha>` images and updates only the running `pr-<n>` pods and sticky PR comment | ~60s |
+| **PR Opened** | CI builds immutable multi-arch images (`:<sha>`); the in-cluster controller creates namespace `pr-<n>`, routes `http://pr-<n>.local.127.0.0.1.nip.io`, and comments the URL on the PR | ~90s |
+| **New Commit Pushed** | CI builds new `:<sha>` images; the controller waits until both are published, then rolls only the `pr-<n>` app pods and updates the sticky PR comment. The previous commit keeps serving until then | ~90s |
 | **PR Idle > 48 Hours** | Environment is automatically torn down to save cluster CPU/RAM; pushing a new commit brings it right back | ~60s |
 | **PR Closed / Merged** | Namespace `pr-<n>` (pods, DB, ingress) is completely deleted and the sticky PR comment is marked removed | ~60s |
 
@@ -36,8 +36,9 @@ Webhook-based preview pipelines break whenever a delivery fails or a local clust
 |---|---|---|
 | **Fork Guard** | `head: gg-push:.*` filter + CI repo check | Prevents external fork PRs from deploying code into your cluster |
 | **Immutable Images** | Tagged by commit `<sha>` (`linux/amd64,arm64`) | Always know the exact commit running in `pr-42`; avoids mutable tag cache bugs |
-| **Hardened Containers** | Non-root UIDs (`1000`/`101`/`70`), `readOnlyRootFilesystem`, `drop: ["ALL"]`, `RuntimeDefault` seccomp, `automountServiceAccountToken: false` | Minimal blast radius if an app container is compromised; HTML output is escaped against stored XSS |
-| **Namespace Isolation** | `NetworkPolicy` (`env-isolation`) + `ResourceQuota` (`1 CPU`, `1 GiB`, `5 pods`) | Blocks cross-PR database access and stops one noisy PR from starving the cluster |
+| **Hardened Containers** | Non-root UIDs, `readOnlyRootFilesystem`, `drop: ["ALL"]`, `RuntimeDefault` seccomp, `automountServiceAccountToken: false` | Minimal blast radius if an app container is compromised |
+| **Namespace Isolation** | `NetworkPolicy` (`env-isolation`) + `ResourceQuota` (`1 CPU`, `1 GiB`, `5 pods`) | Blocks cross-PR database access and stops one noisy PR from starving the cluster. Only the build-gate Job may reach the internet, and only on port 443 |
+| **Build Gate** | kluctl `pre-deploy` hook Job polls GHCR anonymously until both `:<sha>` images exist | A push never rolls out to `ImagePullBackOff`; a failed build leaves the last good commit running |
 | **Least-Privilege RBAC** | `preview-templater` Role + `preview-deployer` ClusterRole | Controller can manage preview resources without holding `cluster-admin` or write access to pods/events |
 | **Split Health Probes** | `/api/live` (process only) vs. `/api/health` (checks Postgres, returns `503`) | Prevents a slow database startup from triggering Kubernetes restart loops |
 
@@ -51,9 +52,9 @@ ephemeral-envs/
 │   ├── ci.yml                     # Python lint/tests, offline kluctl render + kubeconform, frontend build
 │   ├── pr-preview.yml             # Multi-arch Buildx push to GHCR on PR open/sync
 │   └── pr-closed.yml              # Updates sticky PR comment when closed (cluster cleanup is controller-driven)
-├── app/                           # Hardened FastAPI backend + pytest suite
+├── app/                           # FastAPI JSON API (/api/*) + pytest suite
 ├── frontend/                      # React/Vite UI served by unprivileged Nginx (:8080)
-├── deploy/                        # Kluctl templates: namespace, NetworkPolicy, postgres, backend, frontend, ingress
+├── deploy/                        # Kluctl templates: namespace, NetworkPolicy, postgres, build gate, backend, frontend, ingress
 ├── docs/
 │   ├── architecture.svg           # Vector architecture diagram
 │   └── production-server.md       # VPS + custom domain + wildcard TLS + OAuth guide

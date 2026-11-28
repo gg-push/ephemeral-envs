@@ -87,6 +87,11 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
+  # The build-gate hook (deploy/wait-for-images). kluctl recreates it on every
+  # deploy, so it needs delete as well as create.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources:
       - ingresses

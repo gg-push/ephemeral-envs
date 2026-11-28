@@ -1,0 +1,87 @@
+# Build gate: hold the rollout until CI has published both images.
+#
+# The controller sees a new head SHA within a minute of a push, but the
+# multi-arch build takes longer than that. Without this gate the new pods would
+# sit in ImagePullBackOff, and the kubelet's growing pull backoff would delay
+# the rollout further once the image did appear.
+#
+# As a pre-deploy hook, kluctl runs this Job and waits for it to succeed before
+# applying anything after the barrier that follows it in deployment.yaml. The
+# previous commit keeps serving meanwhile. If the build never publishes (it
+# failed, or the PR is from a fork), the Job times out, the deploy is marked
+# failed, and the old environment stays up untouched.
+#
+# GHCR serves public packages to an anonymous pull token, so no credentials are
+# involved. A multi-arch tag only appears once every platform has been pushed,
+# so its existence means the image is complete.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wait-for-images
+  namespace: "pr-{{ args.pr_number }}"
+  annotations:
+    # Both values are needed for the hook to run on every deploy, not just the
+    # first one.
+    kluctl.io/hook: pre-deploy-initial,pre-deploy
+spec:
+  backoffLimit: 0
+  # Ends the wait before the KluctlDeployment's 5m timeout, so the failure
+  # reported is this Job rather than a generic timeout.
+  activeDeadlineSeconds: 240
+  template:
+    metadata:
+      labels:
+        app: image-wait
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: wait
+          image: curlimages/curl:8.23.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # args.registry is "<host>/<owner>", e.g. ghcr.io/gg-push.
+            - name: REGISTRY_HOST
+              value: "{{ args.registry.split('/', 1)[0] }}"
+            - name: REGISTRY_OWNER
+              value: "{{ args.registry.split('/', 1)[1] }}"
+            - name: TAG
+              value: "{{ args.image_tag }}"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              accept="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+              for image in backend frontend; do
+                repo="$REGISTRY_OWNER/ephemeral-envs-$image"
+                until
+                  token=$(curl -fsS "https://$REGISTRY_HOST/token?scope=repository:$repo:pull" \
+                    | sed -E 's/.*"token":"([^"]+)".*/\1/') &&
+                  curl -fsS -I -o /dev/null \
+                    -H "Authorization: Bearer $token" -H "Accept: $accept" \
+                    "https://$REGISTRY_HOST/v2/$repo/manifests/$TAG"
+                do
+                  echo "Waiting for $REGISTRY_HOST/$repo:$TAG"
+                  sleep 10
+                done
+                echo "Found $REGISTRY_HOST/$repo:$TAG"
+              done
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
